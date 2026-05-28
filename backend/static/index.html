@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FireSplunk - Firewall Log Summary</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+    <nav class="bg-blue-600 p-4 text-white">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-2xl font-bold">FireSplunk</h1>
+            <div>
+                <button onclick="showView('search-ip')" class="px-3 py-2 hover:bg-blue-700 rounded">Search IP</button>
+                <button onclick="showView('search-rule')" class="px-3 py-2 hover:bg-blue-700 rounded">Search Rule</button>
+                <button onclick="showView('upload')" class="px-3 py-2 hover:bg-blue-700 rounded">Data Management</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto mt-8 p-4">
+        <!-- Data Management (Overview + Upload) View -->
+        <section id="upload-view" class="view">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold">Data Management</h2>
+                <div class="flex items-center gap-2">
+                    <label class="text-sm text-gray-600">
+                        <input type="checkbox" id="filter-incomplete" onchange="renderTable()" class="mr-1">
+                        Only incomplete
+                    </label>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded shadow overflow-hidden mb-8">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Records</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Uploaded At</th>
+                            <th class="px-6 py-3"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="missing-data-table-body" class="bg-white divide-y divide-gray-200">
+                        <!-- Rows will be injected here -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Search IP View -->
+        <section id="search-ip-view" class="view hidden">
+            <h2 class="text-xl font-semibold mb-4">Search IP</h2>
+            <div class="mb-6 flex gap-2">
+                <input type="text" id="ip-input" placeholder="Enter IP Address" class="border p-2 rounded w-full max-w-sm">
+                <button onclick="searchIP()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Search</button>
+            </div>
+
+            <div class="grid grid-cols-1 gap-6">
+                <!-- Top Panel: Timeline -->
+                <div class="bg-white p-4 rounded shadow">
+                    <h3 class="font-bold mb-2">Activity Timeline</h3>
+                    <canvas id="ip-timeline-chart" height="100"></canvas>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Left Panel: Src Hits -->
+                    <div class="bg-white p-4 rounded shadow">
+                        <h3 class="font-bold mb-2">Source Activity (Rules Hit)</h3>
+                        <div id="ip-src-hits" class="overflow-x-auto"></div>
+                    </div>
+                    <!-- Right Panel: Dst Hits -->
+                    <div class="bg-white p-4 rounded shadow">
+                        <h3 class="font-bold mb-2">Destination Activity (Rules Hit)</h3>
+                        <div id="ip-dst-hits" class="overflow-x-auto"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Search Rule View -->
+        <section id="search-rule-view" class="view hidden">
+            <h2 class="text-xl font-semibold mb-4">Search Firewall Rule</h2>
+            <div class="mb-6 flex gap-2">
+                <input type="text" id="rule-input" placeholder="Enter Rule Name" class="border p-2 rounded w-full max-w-sm">
+                <button onclick="searchRule()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Search</button>
+            </div>
+
+            <div class="grid grid-cols-1 gap-6">
+                <!-- Top Panel: Timeline -->
+                <div class="bg-white p-4 rounded shadow">
+                    <h3 class="font-bold mb-2">Activity Timeline</h3>
+                    <canvas id="rule-timeline-chart" height="100"></canvas>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Left Panel: Active Sources -->
+                    <div class="bg-white p-4 rounded shadow">
+                        <h3 class="font-bold mb-2">Active Sources</h3>
+                        <div id="rule-src-ips" class="overflow-x-auto"></div>
+                    </div>
+                    <!-- Right Panel: Active Destinations -->
+                    <div class="bg-white p-4 rounded shadow">
+                        <h3 class="font-bold mb-2">Active Destinations</h3>
+                        <div id="rule-dst-ips" class="overflow-x-auto"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
