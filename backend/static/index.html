@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FireSplunk - Firewall Log Summary</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="vendor/js/tailwind.js"></script>
+    <script src="vendor/js/chart.js"></script>
 </head>
 <body class="bg-gray-100 font-sans">
     <nav class="bg-blue-600 p-4 text-white">
@@ -77,7 +77,14 @@
             <div class="grid grid-cols-1 gap-6">
                 <!-- Top Panel: Timeline -->
                 <div class="bg-white p-4 rounded shadow">
-                    <h3 class="font-bold mb-2">Activity Timeline</h3>
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="font-bold">Activity Timeline</h3>
+                        <div class="flex gap-4 text-xs">
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-blue-500"></span> Regular</span>
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-green-500"></span> No Hits (Data exists)</span>
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-red-500"></span> Missing Data</span>
+                        </div>
+                    </div>
                     <canvas id="ip-timeline-chart" height="100"></canvas>
                 </div>
                 
@@ -111,7 +118,14 @@
             <div class="grid grid-cols-1 gap-6">
                 <!-- Top Panel: Timeline -->
                 <div class="bg-white p-4 rounded shadow">
-                    <h3 class="font-bold mb-2">Activity Timeline</h3>
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="font-bold">Activity Timeline</h3>
+                        <div class="flex gap-4 text-xs">
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-blue-500"></span> Regular</span>
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-green-500"></span> No Hits (Data exists)</span>
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-red-500"></span> Missing Data</span>
+                        </div>
+                    </div>
                     <canvas id="rule-timeline-chart" height="100"></canvas>
                 </div>
                 

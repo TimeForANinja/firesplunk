@@ -13,6 +13,11 @@ app = APIFlask(
 )
 CORS(app)
 
+# Swagger UI configuration for offline use
+app.config['SWAGGER_UI_BUNDLE_JS'] = '/vendor/js/swagger-ui-bundle.js'
+app.config['SWAGGER_UI_STANDALONE_PRESET_JS'] = '/vendor/js/swagger-ui-standalone-preset.js'
+app.config['SWAGGER_UI_CSS'] = '/vendor/css/swagger-ui.css'
+
 
 # load env variables into app.config
 # overwrite the default loads, to keep properties as strings instead of doing a JSON parse

@@ -27,6 +27,7 @@ class MissingDataSchema(Schema):
 class TimelinePointSchema(Schema):
     timestamp = String(metadata={'description': 'Date/Timestamp of the point'})
     count = Integer(metadata={'description': 'Aggregate hit count for this point'})
+    has_data = Boolean(metadata={'description': 'Whether any data exists in the database for this date'})
 
 class IPSearchHitSchema(Schema):
     rule = String(metadata={'description': 'Firewall rule name'})

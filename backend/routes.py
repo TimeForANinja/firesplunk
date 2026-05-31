@@ -70,9 +70,11 @@ def register_routes(app):
         
         required_fields = ['src_ip', 'dest_ip', 'rule', 'count', 'date', 'ports']
         upload_time = datetime.now()
+        today_str = upload_time.strftime('%Y-%m-%d')
         # Data expires after LAST_N_DAYS + 2
         expires_at = upload_time + timedelta(days=last_n_days + 2)
         
+        final_data = []
         # Pre-process data and validate
         for i, item in enumerate(data):
             # Check for missing fields
@@ -84,6 +86,10 @@ def register_routes(app):
             if missing:
                 return {'message': f'Record {i} is missing required fields: {", ".join(missing)}'}, 400
             
+            # a) ignore any data for today
+            if item['date'] == today_str:
+                continue
+
             item['uploaded_at'] = upload_time
             item['expires_at'] = expires_at
 
@@ -99,11 +105,16 @@ def register_routes(app):
             except (ValueError, TypeError):
                 return {'message': f'Record {i} has invalid ports: {item["ports"]}'}, 400
                 
-        app.config['MONGO_DB']['summaries'].insert_many(data)
+            final_data.append(item)
+
+        if not final_data:
+            return {'message': 'No data to upload (all records were for today or empty)'}, 200
+
+        app.config['MONGO_DB']['summaries'].insert_many(final_data)
         # Ensure TTL index exists
         app.config['MONGO_DB']['summaries'].create_index("expires_at", expireAfterSeconds=0)
         
-        return {'message': f'Successfully uploaded {len(data)} records'}, 201
+        return {'message': f'Successfully uploaded {len(final_data)} records'}, 201
 
     @app.get('/search/ip/<ip>')
     @app.output(IPSearchResultSchema)
@@ -146,7 +157,8 @@ def register_routes(app):
             count = timeline_results.get(d, 0)
             timeline.append({
                 'timestamp': d,
-                'count': count
+                'count': count,
+                'has_data': d in present_dates
             })
 
         # Source hits (grouped by rule)
@@ -233,7 +245,8 @@ def register_routes(app):
             count = timeline_results.get(d, 0)
             timeline.append({
                 'timestamp': d,
-                'count': count
+                'count': count,
+                'has_data': d in present_dates
             })
 
         # Active Sources

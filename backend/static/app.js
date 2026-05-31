@@ -1,8 +1,24 @@
-const API_BASE_URL = '';
+/**
+ * FireSplunk Frontend Application
+ * Handles data management, search (IP/Rule), and activity visualization.
+ */
 
+// =============================================================================
+// STATE & CONFIGURATION
+// =============================================================================
+
+const API_BASE_URL = '';
 let ipTimelineChart = null;
 let ruleTimelineChart = null;
+let missingData = [];
 
+// =============================================================================
+// NAVIGATION & VIEW MANAGEMENT
+// =============================================================================
+
+/**
+ * Switches between different sections of the application.
+ */
 function showView(viewId) {
     document.querySelectorAll('.view').forEach(view => view.classList.add('hidden'));
     document.getElementById(`${viewId}-view`).classList.remove('hidden');
@@ -12,8 +28,13 @@ function showView(viewId) {
     }
 }
 
-let missingData = [];
+// =============================================================================
+// DATA MANAGEMENT (UPLOAD & OVERVIEW)
+// =============================================================================
 
+/**
+ * Fetches the status of data for the last N days.
+ */
 async function loadMissingData() {
     try {
         const response = await fetch(`${API_BASE_URL}/summaries/missing`);
@@ -25,6 +46,9 @@ async function loadMissingData() {
     }
 }
 
+/**
+ * Renders the Data Management table showing data presence/absence.
+ */
 function renderDataManagementTable() {
     const tbody = document.getElementById('missing-data-table-body');
     const filterIncomplete = document.getElementById('filter-incomplete').checked;
@@ -82,10 +106,18 @@ function renderDataManagementTable() {
     });
 }
 
+/** Triggered by filter checkbox */
 function renderTable() {
     renderDataManagementTable();
 }
 
+/** Toggles detail view for missing data rows */
+function toggleRow(index) {
+    const detail = document.getElementById(`detail-${index}`);
+    detail.classList.toggle('hidden');
+}
+
+/** Deletes data for a specific date */
 async function clearData(date) {
     if (!confirm(`Are you sure you want to clear all data for ${date}?`)) return;
     
@@ -103,10 +135,9 @@ async function clearData(date) {
     }
 }
 
-function toggleRow(index) {
-    const detail = document.getElementById(`detail-${index}`);
-    detail.classList.toggle('hidden');
-}
+// =============================================================================
+// CSV PROCESSING & UPLOAD
+// =============================================================================
 
 function handleDropGlobal(event) {
     event.preventDefault();
@@ -124,6 +155,9 @@ function handleFileGlobal(file) {
     reader.readAsText(file);
 }
 
+/**
+ * Parses CSV and sends it to the backend.
+ */
 async function processAndUploadGlobal(csvText) {
     const statusDiv = document.getElementById('status-global');
     statusDiv.className = 'mt-2 text-sm text-blue-600';
@@ -140,14 +174,14 @@ async function processAndUploadGlobal(csvText) {
             body: JSON.stringify({ data: jsonData })
         });
         
+        const result = await response.json();
         if (response.ok) {
             statusDiv.className = 'mt-2 text-sm text-green-600 font-bold';
-            statusDiv.innerText = `Successfully uploaded ${jsonData.length} records! Refreshing...`;
+            statusDiv.innerText = result.message + ' Refreshing...';
             setTimeout(loadMissingData, 1500);
         } else {
-            const err = await response.json();
             statusDiv.className = 'mt-2 text-sm text-red-600';
-            statusDiv.innerText = 'Upload failed: ' + (err.message || 'Unknown error');
+            statusDiv.innerText = 'Upload failed: ' + (result.message || 'Unknown error');
         }
     } catch (err) {
         statusDiv.className = 'mt-2 text-sm text-red-600';
@@ -155,6 +189,9 @@ async function processAndUploadGlobal(csvText) {
     }
 }
 
+/**
+ * Converts CSV string to JSON objects.
+ */
 function parseCSV(csvText, defaultDate = null) {
     const lines = csvText.split(/\r?\n/);
     if (lines.length < 2) return [];
@@ -177,19 +214,9 @@ function parseCSV(csvText, defaultDate = null) {
     return jsonData;
 }
 
-function handleDrop(event, date) {
-    // Deprecated in favor of global upload
-    event.preventDefault();
-}
-
-function handleFile(file, date) {
-    // Deprecated in favor of global upload
-}
-
-async function processAndUpload(csvText, date) {
-    // Deprecated in favor of global upload
-}
-
+// =============================================================================
+// SEARCH FUNCTIONALITY
+// =============================================================================
 
 async function searchIP() {
     const ip = document.getElementById('ip-input').value;
@@ -245,6 +272,13 @@ async function searchRule() {
     }
 }
 
+// =============================================================================
+// UI HELPERS & VISUALIZATION
+// =============================================================================
+
+/**
+ * Creates/Updates a Chart.js timeline chart.
+ */
 function renderTimeline(canvasId, timelineData, chartInstance, setChartInstance) {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
@@ -262,10 +296,26 @@ function renderTimeline(canvasId, timelineData, chartInstance, setChartInstance)
                 label: 'Event Count',
                 data: timelineData.map(d => d.count),
                 borderColor: 'rgb(59, 130, 246)',
+                backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                pointBackgroundColor: timelineData.map(d => {
+                    if (!d.has_data) return 'rgb(239, 68, 68)'; // Red: no data for the day
+                    if (d.count === 0) return 'rgb(34, 197, 94)'; // Green: we have data, but it's 0
+                    return 'rgb(59, 130, 246)'; // Blue: regular datapoint
+                }),
+                pointBorderColor: timelineData.map(d => {
+                    if (!d.has_data) return 'rgb(239, 68, 68)';
+                    if (d.count === 0) return 'rgb(34, 197, 94)';
+                    return 'rgb(59, 130, 246)';
+                }),
+                pointRadius: 5,
+                pointHoverRadius: 7,
                 tension: 0.1
             }]
         },
         options: {
+            plugins: {
+                legend: { display: false }
+            },
             scales: {
                 y: { beginAtZero: true }
             }
@@ -275,6 +325,9 @@ function renderTimeline(canvasId, timelineData, chartInstance, setChartInstance)
     setChartInstance(newChart);
 }
 
+/**
+ * Renders a data table in the search results view.
+ */
 function renderResultsTable(containerId, headers, data, rowMapper) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -300,5 +353,8 @@ function renderResultsTable(containerId, headers, data, rowMapper) {
     container.innerHTML = html;
 }
 
-// Initial load
+// =============================================================================
+// INITIALIZATION
+// =============================================================================
+
 loadMissingData();
