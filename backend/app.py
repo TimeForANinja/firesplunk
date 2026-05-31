@@ -16,6 +16,7 @@ CORS(app)
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 SPLUNK_SERVER_URL = os.getenv('SPLUNK_SERVER_URL', 'https://splunk.example.com')
 SPLUNK_QUERY_TEMPLATE = os.getenv('SPLUNK_QUERY_TEMPLATE', 'index=net-fw | stats count by src_ip dest_ip rule')
+LAST_N_DAYS = int(os.getenv('LAST_N_DAYS', 30))
 client = MongoClient(MONGO_URI)
 db = client.get_database('firesplunk')
 summaries_collection = db.summaries
@@ -70,13 +71,13 @@ def health_check():
 @app.get('/summaries/missing')
 @app.output(MissingDataResponseSchema)
 def get_missing_data():
-    """Get status of data for the last 30 days and Splunk queries for missing ones."""
+    """Get status of data for the last N days and Splunk queries for missing ones."""
     days_data = []
     now = datetime.now()
     today_str = now.strftime('%Y-%m-%d')
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     
-    for i in range(0, 31):
+    for i in range(0, LAST_N_DAYS + 1):
         target_date = today_start - timedelta(days=i)
         date_str = target_date.strftime('%Y-%m-%d')
         
