@@ -7,9 +7,11 @@ services:
       - "80:5000"
       - "5000:5000"
     environment:
-      - MONGO_URI=mongodb://mongodb:27017/
-      - SPLUNK_SERVER_URL=https://splunk.dmz.tfan.me
-      - SPLUNK_QUERY_TEMPLATE=index=net-fw | stats count by src_ip dest_ip rule
+      - APP_MONGO_URI=mongodb://mongodb:27017/
+      - APP_SPLUNK_SERVER_URL=https://splunk.dmz.tfan.me
+      - APP_SPLUNK_QUERY_TEMPLATE=index=net-fw 
+          | stats count, values(dest_port) as ports by src_ip dest_ip rule date 
+          | eval ports=mvjoin(ports,":")
     depends_on:
       - mongodb
 

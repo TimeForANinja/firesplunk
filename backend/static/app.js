@@ -74,15 +74,6 @@ function renderDataManagementTable() {
                         <div class="flex items-center space-x-4">
                             <a href="${day.splunk_link}" target="_blank" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">Open in Splunk</a>
                         </div>
-                        <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors hover:border-blue-400"
-                             ondragover="event.preventDefault(); this.classList.add('border-blue-400')" 
-                             ondragleave="this.classList.remove('border-blue-400')"
-                             ondrop="handleDrop(event, '${day.date}')">
-                            <p class="text-sm text-gray-600">Drag and drop Splunk <b>CSV</b> here for ${day.date}</p>
-                            <input type="file" class="hidden" id="file-${index}" onchange="handleFile(this.files[0], '${day.date}')">
-                            <button onclick="document.getElementById('file-${index}').click()" class="mt-2 text-blue-600 text-sm hover:underline">or select file</button>
-                            <div id="status-${day.date}" class="mt-2 text-xs hidden"></div>
-                        </div>
                     </div>
                 </td>
             `;
@@ -117,50 +108,31 @@ function toggleRow(index) {
     detail.classList.toggle('hidden');
 }
 
-function handleDrop(event, date) {
+function handleDropGlobal(event) {
     event.preventDefault();
     event.currentTarget.classList.remove('border-blue-400');
     const file = event.dataTransfer.files[0];
-    if (file) handleFile(file, date);
+    if (file) handleFileGlobal(file);
 }
 
-function handleFile(file, date) {
+function handleFileGlobal(file) {
     const reader = new FileReader();
     reader.onload = async (e) => {
         const text = e.target.result;
-        await processAndUpload(text, date);
+        await processAndUploadGlobal(text);
     };
     reader.readAsText(file);
 }
 
-async function processAndUpload(csvText, date) {
-    const statusDiv = document.getElementById(`status-${date}`);
-    statusDiv.className = 'mt-2 text-xs text-blue-600';
+async function processAndUploadGlobal(csvText) {
+    const statusDiv = document.getElementById('status-global');
+    statusDiv.className = 'mt-2 text-sm text-blue-600';
     statusDiv.innerText = 'Processing...';
     statusDiv.classList.remove('hidden');
 
     try {
-        const lines = csvText.split(/\r?\n/);
-        if (lines.length < 2) throw new Error('Empty or invalid CSV');
-        
-        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-        const jsonData = [];
-        
-        for (let i = 1; i < lines.length; i++) {
-            if (!lines[i].trim()) continue;
-            const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-            const obj = { date: date };
-            headers.forEach((header, index) => {
-                obj[header] = values[index];
-            });
-            // Ensure count is number if present
-            if (obj.count) obj.count = parseInt(obj.count);
-            // Default values if missing
-            if (!obj.rule) obj.rule = 'unknown';
-            if (!obj.count) obj.count = 1;
-            
-            jsonData.push(obj);
-        }
+        const jsonData = parseCSV(csvText);
+        if (jsonData.length === 0) throw new Error('No data found in CSV');
 
         const response = await fetch(`${API_BASE_URL}/summaries/upload`, {
             method: 'POST',
@@ -169,32 +141,77 @@ async function processAndUpload(csvText, date) {
         });
         
         if (response.ok) {
-            statusDiv.className = 'mt-2 text-xs text-green-600 font-bold';
-            statusDiv.innerText = 'Uploaded successfully! Refreshing...';
+            statusDiv.className = 'mt-2 text-sm text-green-600 font-bold';
+            statusDiv.innerText = `Successfully uploaded ${jsonData.length} records! Refreshing...`;
             setTimeout(loadMissingData, 1500);
         } else {
             const err = await response.json();
-            statusDiv.className = 'mt-2 text-xs text-red-600';
+            statusDiv.className = 'mt-2 text-sm text-red-600';
             statusDiv.innerText = 'Upload failed: ' + (err.message || 'Unknown error');
         }
     } catch (err) {
-        statusDiv.className = 'mt-2 text-xs text-red-600';
+        statusDiv.className = 'mt-2 text-sm text-red-600';
         statusDiv.innerText = 'Error: ' + err.message;
     }
+}
+
+function parseCSV(csvText, defaultDate = null) {
+    const lines = csvText.split(/\r?\n/);
+    if (lines.length < 2) return [];
+    
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+    const jsonData = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+        const obj = {};
+        if (defaultDate) obj.date = defaultDate;
+
+        headers.forEach((header, index) => {
+            obj[header] = values[index];
+        });
+
+        jsonData.push(obj);
+    }
+    return jsonData;
+}
+
+function handleDrop(event, date) {
+    // Deprecated in favor of global upload
+    event.preventDefault();
+}
+
+function handleFile(file, date) {
+    // Deprecated in favor of global upload
+}
+
+async function processAndUpload(csvText, date) {
+    // Deprecated in favor of global upload
 }
 
 
 async function searchIP() {
     const ip = document.getElementById('ip-input').value;
     if (!ip) return;
+
+    const header = document.getElementById('search-ip-header');
     
     try {
         const response = await fetch(`${API_BASE_URL}/search/ip/${ip}`);
         const data = await response.json();
         
+        let headerText = `Showing results for: ${ip}`;
+        const warning = data.warning;
+        if (warning) {
+            headerText += ` <span class="text-red-600 ml-2">(Warning: ${warning})</span>`;
+        }
+        header.innerHTML = headerText;
+        header.classList.remove('hidden');
+
         renderTimeline('ip-timeline-chart', data.timeline, ipTimelineChart, (chart) => ipTimelineChart = chart);
-        renderResultsTable('ip-src-hits', ['Rule', 'Count'], data.src_hits, (item) => [item.rule, item.count]);
-        renderResultsTable('ip-dst-hits', ['Rule', 'Count'], data.dst_hits, (item) => [item.rule, item.count]);
+        renderResultsTable('ip-src-hits', ['Rule', 'Count', 'Last Activity'], data.src_hits, (item) => [item.rule, item.count, item.last_activity]);
+        renderResultsTable('ip-dst-hits', ['Rule', 'Count', 'Last Activity'], data.dst_hits, (item) => [item.rule, item.count, item.last_activity]);
         
     } catch (error) {
         console.error('Error searching IP:', error);
@@ -204,14 +221,24 @@ async function searchIP() {
 async function searchRule() {
     const rule = document.getElementById('rule-input').value;
     if (!rule) return;
+
+    const header = document.getElementById('search-rule-header');
     
     try {
         const response = await fetch(`${API_BASE_URL}/search/rule/${rule}`);
         const data = await response.json();
         
+        let headerText = `Showing results for: ${rule}`;
+        const warning = data.warning;
+        if (warning) {
+            headerText += ` <span class="text-red-600 ml-2">(Warning: ${warning})</span>`;
+        }
+        header.innerHTML = headerText;
+        header.classList.remove('hidden');
+
         renderTimeline('rule-timeline-chart', data.timeline, ruleTimelineChart, (chart) => ruleTimelineChart = chart);
-        renderResultsTable('rule-src-ips', ['IP', 'Count'], data.active_sources, (item) => [item.ip, item.count]);
-        renderResultsTable('rule-dst-ips', ['IP', 'Count'], data.active_destinations, (item) => [item.ip, item.count]);
+        renderResultsTable('rule-src-ips', ['IP', 'Count', 'Last Activity'], data.active_sources, (item) => [item.ip, item.count, item.last_activity]);
+        renderResultsTable('rule-dst-ips', ['IP', 'Count', 'Last Activity'], data.active_destinations, (item) => [item.ip, item.count, item.last_activity]);
         
     } catch (error) {
         console.error('Error searching rule:', error);

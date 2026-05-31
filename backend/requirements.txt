@@ -1,5 +1,4 @@
 apiflask
 pymongo
 flask-cors
-python-dotenv
 gunicorn

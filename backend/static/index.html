@@ -31,6 +31,18 @@
                     </label>
                 </div>
             </div>
+
+            <div class="bg-blue-50 border-2 border-dashed border-blue-200 rounded-lg p-8 text-center transition-colors hover:border-blue-400 mb-8"
+                 ondragover="event.preventDefault(); this.classList.add('border-blue-400')" 
+                 ondragleave="this.classList.remove('border-blue-400')"
+                 ondrop="handleDropGlobal(event)">
+                <h3 class="font-bold text-blue-800 mb-2">Upload New Splunk Export</h3>
+                <p class="text-sm text-blue-600">Drag and drop Splunk <b>CSV</b> here</p>
+                <p class="text-xs text-blue-500 mt-1">(The CSV should contain date, src_ip, dest_ip, rule, count, and ports)</p>
+                <input type="file" class="hidden" id="file-global" onchange="handleFileGlobal(this.files[0])">
+                <button onclick="document.getElementById('file-global').click()" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">Select File</button>
+                <div id="status-global" class="mt-2 text-sm hidden"></div>
+            </div>
             
             <div class="bg-white rounded shadow overflow-hidden mb-8">
                 <table class="min-w-full divide-y divide-gray-200">
@@ -56,6 +68,10 @@
             <div class="mb-6 flex gap-2">
                 <input type="text" id="ip-input" placeholder="Enter IP Address" class="border p-2 rounded w-full max-w-sm">
                 <button onclick="searchIP()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Search</button>
+            </div>
+
+            <div id="search-ip-header" class="hidden mb-4 p-3 bg-blue-100 border-l-4 border-blue-500 text-blue-700 font-medium">
+                <!-- Search term injected here -->
             </div>
 
             <div class="grid grid-cols-1 gap-6">
@@ -86,6 +102,10 @@
             <div class="mb-6 flex gap-2">
                 <input type="text" id="rule-input" placeholder="Enter Rule Name" class="border p-2 rounded w-full max-w-sm">
                 <button onclick="searchRule()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Search</button>
+            </div>
+
+            <div id="search-rule-header" class="hidden mb-4 p-3 bg-blue-100 border-l-4 border-blue-500 text-blue-700 font-medium">
+                <!-- Search term injected here -->
             </div>
 
             <div class="grid grid-cols-1 gap-6">
