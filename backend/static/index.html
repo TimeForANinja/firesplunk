@@ -10,7 +10,9 @@
 <body class="bg-gray-100 font-sans">
     <nav class="bg-blue-600 p-4 text-white">
         <div class="container mx-auto flex justify-between items-center">
-            <h1 class="text-2xl font-bold">FireSplunk</h1>
+            <div class="flex items-center gap-4">
+                <h1 class="text-2xl font-bold">FireSplunk</h1>
+            </div>
             <div>
                 <button onclick="showView('search-ip')" class="px-3 py-2 hover:bg-blue-700 rounded">Search IP</button>
                 <button onclick="showView('search-rule')" class="px-3 py-2 hover:bg-blue-700 rounded">Search Rule</button>
@@ -48,10 +50,10 @@
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Records</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Uploaded At</th>
+                            <th onclick="sortMissingData(0)" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100">Date</th>
+                            <th onclick="sortMissingData(1)" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100">Status</th>
+                            <th onclick="sortMissingData(2)" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100">Records</th>
+                            <th onclick="sortMissingData(3)" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100">Uploaded At</th>
                             <th class="px-6 py-3"></th>
                         </tr>
                     </thead>
@@ -91,12 +93,12 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <!-- Left Panel: Src Hits -->
                     <div class="bg-white p-4 rounded shadow">
-                        <h3 class="font-bold mb-2">Source Activity (Rules Hit)</h3>
+                        <h3 class="font-bold mb-2">Source Activity (Rules Hit) <span id="ip-src-hits-count" class="text-sm font-normal text-gray-500"></span></h3>
                         <div id="ip-src-hits" class="overflow-x-auto"></div>
                     </div>
                     <!-- Right Panel: Dst Hits -->
                     <div class="bg-white p-4 rounded shadow">
-                        <h3 class="font-bold mb-2">Destination Activity (Rules Hit)</h3>
+                        <h3 class="font-bold mb-2">Destination Activity (Rules Hit) <span id="ip-dst-hits-count" class="text-sm font-normal text-gray-500"></span></h3>
                         <div id="ip-dst-hits" class="overflow-x-auto"></div>
                     </div>
                 </div>
@@ -129,15 +131,20 @@
                     <canvas id="rule-timeline-chart" height="100"></canvas>
                 </div>
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <!-- Left Panel: Active Sources -->
                     <div class="bg-white p-4 rounded shadow">
-                        <h3 class="font-bold mb-2">Active Sources</h3>
+                        <h3 class="font-bold mb-2">Active Sources <span id="rule-src-ips-count" class="text-sm font-normal text-gray-500"></span></h3>
                         <div id="rule-src-ips" class="overflow-x-auto"></div>
+                    </div>
+                    <!-- Middle Panel: Ports -->
+                    <div class="bg-white p-4 rounded shadow">
+                        <h3 class="font-bold mb-2">Involved Ports <span id="rule-ports-count" class="text-sm font-normal text-gray-500"></span></h3>
+                        <div id="rule-ports" class="overflow-x-auto"></div>
                     </div>
                     <!-- Right Panel: Active Destinations -->
                     <div class="bg-white p-4 rounded shadow">
-                        <h3 class="font-bold mb-2">Active Destinations</h3>
+                        <h3 class="font-bold mb-2">Active Destinations <span id="rule-dst-ips-count" class="text-sm font-normal text-gray-500"></span></h3>
                         <div id="rule-dst-ips" class="overflow-x-auto"></div>
                     </div>
                 </div>

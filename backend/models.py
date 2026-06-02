@@ -1,5 +1,5 @@
 from apiflask import Schema
-from apiflask.fields import String, List, Integer, DateTime, Boolean
+from apiflask.fields import String, List, Integer, DateTime, Boolean, File
 from marshmallow.fields import Nested
 
 # Schemas
@@ -13,11 +13,11 @@ class SummaryItemSchema(Schema):
     timestamp = String(metadata={'description': 'Optional more granular timestamp'})
 
 class UploadSchema(Schema):
-    data = List(Nested(SummaryItemSchema), required=True, metadata={'description': 'List of activity records to upload'})
+    file = File(required=True, metadata={'description': 'CSV file containing activity records'})
 
 class MissingDataSchema(Schema):
     date = String(metadata={'description': 'The date being checked'})
-    status = String(metadata={'description': 'Status of data: "present" or "missing"'})
+    status = String(metadata={'description': 'Status of data: "present", "missing", or "locked"'})
     count = Integer(metadata={'description': 'Total number of records for this date'})
     splunk_query = String(metadata={'description': 'Splunk query to retrieve missing data'})
     splunk_link = String(metadata={'description': 'Direct link to Splunk search'})
@@ -45,8 +45,14 @@ class IPSearchResultSchema(Schema):
     dst_hits = List(Nested(IPSearchHitSchema), metadata={'description': 'Rules hit when this IP was destination'})
     warning = String(metadata={'description': 'Warning message about data completeness'})
 
+class PortHitSchema(Schema):
+    port = Integer(metadata={'description': 'Port number'})
+    count = Integer(metadata={'description': 'Number of hits'})
+    last_activity = String(metadata={'description': 'Date of last activity (YYYY-MM-DD)'})
+
 class RuleSearchResultSchema(Schema):
     timeline = List(Nested(TimelinePointSchema), metadata={'description': 'Daily activity timeline'})
+    ports = List(Nested(PortHitSchema), metadata={'description': 'Active ports for this rule'})
     active_sources = List(Nested(RuleSearchHitSchema), metadata={'description': 'Top source IPs for this rule'})
     active_destinations = List(Nested(RuleSearchHitSchema), metadata={'description': 'Top destination IPs for this rule'})
     warning = String(metadata={'description': 'Warning message about data completeness'})

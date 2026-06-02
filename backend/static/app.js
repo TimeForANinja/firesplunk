@@ -12,6 +12,12 @@ let ipTimelineChart = null;
 let ruleTimelineChart = null;
 let missingData = [];
 
+// Search state
+let isSearching = false;
+const tableSortStates = {
+    'missing-data': { colIndex: 0, direction: -1 }
+};
+
 // =============================================================================
 // NAVIGATION & VIEW MANAGEMENT
 // =============================================================================
@@ -55,23 +61,51 @@ function renderDataManagementTable() {
     if (!tbody) return;
     tbody.innerHTML = '';
     
-    missingData.forEach((day, index) => {
+    let displayData = [...missingData];
+    const sortState = tableSortStates['missing-data'];
+    
+    displayData.sort((a, b) => {
+        let valA, valB;
+        switch(sortState.colIndex) {
+            case 0: valA = a.date; valB = b.date; break;
+            case 1: valA = a.status; valB = b.status; break;
+            case 2: valA = a.count; valB = b.count; break;
+            case 3: valA = a.uploaded_at || ''; valB = b.uploaded_at || ''; break;
+        }
+        if (typeof valA === 'number') return (valA - valB) * sortState.direction;
+        return naturalCompare(valA, valB) * sortState.direction;
+    });
+
+    displayData.forEach((day, index) => {
         const isPresent = day.status === 'present';
+        const isLocked = day.status === 'locked';
+
         if (filterIncomplete && isPresent) return;
 
         const row = document.createElement('tr');
-        row.className = isPresent ? 'bg-green-50' : (day.is_locked ? 'bg-gray-50 opacity-50 cursor-not-allowed' : 'bg-red-50 cursor-pointer');
         
-        if (!isPresent && !day.is_locked) {
+        let rowClass = 'bg-white';
+        if (isPresent) rowClass = 'bg-green-50';
+        else if (isLocked) rowClass = 'bg-gray-50 opacity-50 cursor-not-allowed';
+        else rowClass = 'bg-red-50 cursor-pointer';
+        
+        row.className = rowClass;
+        
+        if (!isPresent && !isLocked) {
             row.onclick = () => toggleRow(index);
         }
         
         const uploadedAt = day.uploaded_at ? new Date(day.uploaded_at).toLocaleString() : '-';
         
+        let statusBadgeClass = 'bg-gray-100 text-gray-800';
+        if (isPresent) statusBadgeClass = 'bg-green-100 text-green-800';
+        else if (isLocked) statusBadgeClass = 'bg-gray-100 text-gray-800';
+        else statusBadgeClass = 'bg-red-100 text-red-800';
+
         row.innerHTML = `
-            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${day.date} ${day.is_locked ? '(Today - Locked)' : ''}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${day.date} ${isLocked ? '(Today - Locked)' : ''}</td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${isPresent ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusBadgeClass}">
                     ${day.status}
                 </span>
             </td>
@@ -79,12 +113,12 @@ function renderDataManagementTable() {
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${uploadedAt}</td>
             <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                 ${isPresent ? `<button onclick="event.stopPropagation(); clearData('${day.date}')" class="text-red-600 hover:text-red-900 mr-4">Clear</button>` : ''}
-                ${!isPresent && !day.is_locked ? '<span class="text-blue-600 hover:text-blue-900">Unfold</span>' : ''}
+                ${(!isPresent && !isLocked) ? '<span class="text-blue-600 hover:text-blue-900">Unfold</span>' : ''}
             </td>
         `;
         tbody.appendChild(row);
 
-        if (!isPresent && !day.is_locked) {
+        if (!isPresent && !isLocked) {
             const detailRow = document.createElement('tr');
             detailRow.id = `detail-${index}`;
             detailRow.className = 'hidden bg-white';
@@ -114,7 +148,21 @@ function renderTable() {
 /** Toggles detail view for missing data rows */
 function toggleRow(index) {
     const detail = document.getElementById(`detail-${index}`);
-    detail.classList.toggle('hidden');
+    if (detail) {
+        detail.classList.toggle('hidden');
+    }
+}
+
+/** Sorts Missing Data table */
+function sortMissingData(colIndex) {
+    const sortState = tableSortStates['missing-data'];
+    if (sortState.colIndex === colIndex) {
+        sortState.direction *= -1;
+    } else {
+        sortState.colIndex = colIndex;
+        sortState.direction = 1;
+    }
+    renderDataManagementTable();
 }
 
 /** Deletes data for a specific date */
@@ -147,31 +195,25 @@ function handleDropGlobal(event) {
 }
 
 function handleFileGlobal(file) {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        const text = e.target.result;
-        await processAndUploadGlobal(text);
-    };
-    reader.readAsText(file);
+    processAndUploadGlobal(file);
 }
 
 /**
- * Parses CSV and sends it to the backend.
+ * Sends CSV file to the backend.
  */
-async function processAndUploadGlobal(csvText) {
+async function processAndUploadGlobal(file) {
     const statusDiv = document.getElementById('status-global');
     statusDiv.className = 'mt-2 text-sm text-blue-600';
-    statusDiv.innerText = 'Processing...';
+    statusDiv.innerText = 'Uploading...';
     statusDiv.classList.remove('hidden');
 
     try {
-        const jsonData = parseCSV(csvText);
-        if (jsonData.length === 0) throw new Error('No data found in CSV');
+        const formData = new FormData();
+        formData.append('file', file);
 
         const response = await fetch(`${API_BASE_URL}/summaries/upload`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data: jsonData })
+            body: formData
         });
         
         const result = await response.json();
@@ -189,40 +231,20 @@ async function processAndUploadGlobal(csvText) {
     }
 }
 
-/**
- * Converts CSV string to JSON objects.
- */
-function parseCSV(csvText, defaultDate = null) {
-    const lines = csvText.split(/\r?\n/);
-    if (lines.length < 2) return [];
-    
-    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-    const jsonData = [];
-    
-    for (let i = 1; i < lines.length; i++) {
-        if (!lines[i].trim()) continue;
-        const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-        const obj = {};
-        if (defaultDate) obj.date = defaultDate;
-
-        headers.forEach((header, index) => {
-            obj[header] = values[index];
-        });
-
-        jsonData.push(obj);
-    }
-    return jsonData;
-}
-
 // =============================================================================
 // SEARCH FUNCTIONALITY
 // =============================================================================
 
 async function searchIP() {
+    if (isSearching) return;
     const ip = document.getElementById('ip-input').value;
     if (!ip) return;
 
     const header = document.getElementById('search-ip-header');
+    header.innerHTML = '<span class="animate-pulse">Search in progress...</span>';
+    header.classList.remove('hidden');
+    
+    setSearching(true);
     
     try {
         const response = await fetch(`${API_BASE_URL}/search/ip/${ip}`);
@@ -242,14 +264,21 @@ async function searchIP() {
         
     } catch (error) {
         console.error('Error searching IP:', error);
+    } finally {
+        setSearching(false);
     }
 }
 
 async function searchRule() {
+    if (isSearching) return;
     const rule = document.getElementById('rule-input').value;
     if (!rule) return;
 
     const header = document.getElementById('search-rule-header');
+    header.innerHTML = '<span class="animate-pulse">Search in progress...</span>';
+    header.classList.remove('hidden');
+
+    setSearching(true);
     
     try {
         const response = await fetch(`${API_BASE_URL}/search/rule/${rule}`);
@@ -264,11 +293,15 @@ async function searchRule() {
         header.classList.remove('hidden');
 
         renderTimeline('rule-timeline-chart', data.timeline, ruleTimelineChart, (chart) => ruleTimelineChart = chart);
+        
         renderResultsTable('rule-src-ips', ['IP', 'Count', 'Last Activity'], data.active_sources, (item) => [item.ip, item.count, item.last_activity]);
         renderResultsTable('rule-dst-ips', ['IP', 'Count', 'Last Activity'], data.active_destinations, (item) => [item.ip, item.count, item.last_activity]);
+        renderResultsTable('rule-ports', ['Port', 'Count', 'Last Activity'], data.ports, (item) => [item.port, item.count, item.last_activity]);
         
     } catch (error) {
         console.error('Error searching rule:', error);
+    } finally {
+        setSearching(false);
     }
 }
 
@@ -326,24 +359,96 @@ function renderTimeline(canvasId, timelineData, chartInstance, setChartInstance)
 }
 
 /**
+ * Sets the searching state and updates UI.
+ */
+function setSearching(state) {
+    isSearching = state;
+    if (state) {
+        document.querySelectorAll('button').forEach(btn => btn.disabled = true);
+    } else {
+        document.querySelectorAll('button').forEach(btn => btn.disabled = false);
+    }
+}
+
+/**
+ * Compares two values, performing natural/content-aware sorting for IPs and numbers.
+ */
+function naturalCompare(a, b) {
+    // 1. Numeric check
+    const numA = Number(a);
+    const numB = Number(b);
+    if (!isNaN(numA) && !isNaN(numB) && a !== '' && b !== '') {
+        return numA - numB;
+    }
+
+    // 2. IP check
+    const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+    const isA = ipPattern.test(a);
+    const isB = ipPattern.test(b);
+    
+    if (isA && isB) {
+        const octetsA = a.split('.').map(Number);
+        const octetsB = b.split('.').map(Number);
+        for (let i = 0; i < 4; i++) {
+            if (octetsA[i] !== octetsB[i]) {
+                return octetsA[i] - octetsB[i];
+            }
+        }
+        return 0;
+    }
+
+    // 3. Fallback to localeCompare
+    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+}
+
+/**
  * Renders a data table in the search results view.
  */
 function renderResultsTable(containerId, headers, data, rowMapper) {
     const container = document.getElementById(containerId);
     if (!container) return;
+
+    // Update count in header
+    const countSpan = document.getElementById(`${containerId}-count`);
+    if (countSpan) {
+        countSpan.innerText = data ? `(${data.length})` : '(0)';
+    }
+
     if (!data || data.length === 0) {
         container.innerHTML = '<p class="text-gray-500">No activity found.</p>';
         return;
     }
+
+    // Initialize sort state for this table if not exists
+    if (!tableSortStates[containerId]) {
+        tableSortStates[containerId] = { colIndex: 1, direction: -1 }; // Default sort by Count descending
+    }
+
+    const sortState = tableSortStates[containerId];
+    
+    // Sort data
+    const sortedData = [...data].sort((a, b) => {
+        const valA = rowMapper(a)[sortState.colIndex];
+        const valB = rowMapper(b)[sortState.colIndex];
+        
+        if (typeof valA === 'number') {
+            return (valA - valB) * sortState.direction;
+        }
+        
+        return naturalCompare(valA, valB) * sortState.direction;
+    });
     
     let html = `<table class="min-w-full divide-y divide-gray-200">
         <thead class="bg-gray-50">
             <tr>
-                ${headers.map(h => `<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${h}</th>`).join('')}
+                ${headers.map((h, i) => `
+                    <th onclick="sortTable('${containerId}', ${i})" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100">
+                        ${h} ${sortState.colIndex === i ? (sortState.direction === 1 ? '↑' : '↓') : ''}
+                    </th>`).join('')}
             </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
-            ${data.map(item => {
+            ${sortedData.map(item => {
                 const cells = rowMapper(item);
                 return `<tr>${cells.map(c => `<td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">${c}</td>`).join('')}</tr>`;
             }).join('')}
@@ -351,6 +456,30 @@ function renderResultsTable(containerId, headers, data, rowMapper) {
     </table>`;
     
     container.innerHTML = html;
+
+    // Store the raw data and rowMapper for re-sorting
+    container.dataset.rawData = JSON.stringify(data);
+    container._rowMapper = rowMapper;
+    container._headers = headers;
+}
+
+/**
+ * Sorts a table by column index.
+ */
+function sortTable(containerId, colIndex) {
+    const container = document.getElementById(containerId);
+    const data = JSON.parse(container.dataset.rawData);
+    const rowMapper = container._rowMapper;
+    const headers = container._headers;
+
+    if (tableSortStates[containerId].colIndex === colIndex) {
+        tableSortStates[containerId].direction *= -1;
+    } else {
+        tableSortStates[containerId].colIndex = colIndex;
+        tableSortStates[containerId].direction = 1;
+    }
+
+    renderResultsTable(containerId, headers, data, rowMapper);
 }
 
 // =============================================================================

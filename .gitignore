@@ -1,5 +1,6 @@
 .idea
 .env
+sample_accesslog*
 
 # python
 .venv
