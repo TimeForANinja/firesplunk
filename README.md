@@ -16,20 +16,24 @@ FireSplunk uses three main collections in MongoDB to balance storage efficiency 
    - Indexed by `date` for fast timeline retrieval.
    - Automatically expires records via TTL index on `expires_at`.
 
-2. **`correlated_data`**: A high-performance aggregation layer.
-   - Stores pre-calculated hit counts: `ip`, `rule_id`, `direction`, `hit_count`, `last_seen`, `first_seen`.
-   - Used to power the "Source Activity" and "Active Sources/Destinations" tables instantly.
-   - Updated atomically during CSV uploads using `$inc`, `$max`, and `$min`.
+2. **`correlated_rule_ip`**: A high-performance aggregation layer for IP-Rule activity.
+   - Stores activity maps: `ip`, `rule_id`, `direction`, `activity` (dict mapping date to count), `expires_at`.
+   - Used to power activity tables and timelines instantly.
+   - Updated atomically during CSV uploads using `$inc`.
 
-3. **`data_status`**: Tracks the completeness of the local database.
+3. **`correlated_rule_ports`**: Aggregation layer for Rule-Port activity.
+   - Stores activity maps: `rule_id`, `port`, `activity` (dict mapping date to count), `expires_at`.
+   - Powers the "Involved Ports" view in rule searches.
+
+4. **`data_status`**: Tracks the completeness of the local database.
    - Stores metadata for each day: `status` (present/missing/locked), `count`, `uploaded_at`.
    - Powers the Data Management view and provides warnings if searches cover periods with missing data.
 
 ## How to Use
-1. **Initial Setup:** Run `docker-compose up -d`. On the first start with existing data, the backend will run an `init_db` process to build indexes and populate the `correlated_data` collection. **Please be patient** and wait for the "Database initialization complete" message in the logs before performing heavy searches.
+1. **Initial Setup:** Run `docker-compose up -d`. On the first start with existing data, the backend will run an `init_db` process to build indexes and populate the `correlated_rule_ip` collection. **Please be patient** and wait for the "Database initialization complete" message in the logs before performing heavy searches.
 2. **Identify Gaps:** Navigate to the **Data Management** tab. This shows a 30-day lookback. Red rows indicate missing data.
 3. **Fetch from Splunk:** Unfold a "missing" row to find the pre-generated Splunk query and a direct link. Run the query in your Splunk instance and export the results as a **CSV**.
-4. **Upload Data:** Drag and drop the exported CSV into the upload area on the Data Management page. The system will process the data in batches and update both the `summaries` and `correlated_data` collections.
+4. **Upload Data:** Drag and drop the exported CSV into the upload area on the Data Management page. The system will process the data in batches and update both the `summaries` and `correlated_rule_ip` collections.
 5. **Search & Analyze:** Use the **Search IP** or **Search Rule** tabs to investigate activity. If you see a warning about "missing data", check the Data Management tab to see which days need to be uploaded for a complete picture.
 
 ## Project Structure

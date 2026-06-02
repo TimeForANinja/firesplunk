@@ -1,9 +1,11 @@
 import logging
+import threading
 from collections import defaultdict
 from datetime import datetime, timedelta
 from urllib.parse import quote, urljoin
 import csv
 import io
+from concurrent.futures import ThreadPoolExecutor
 from pymongo import UpdateOne
 
 from db import build_correlations
@@ -14,6 +16,66 @@ from models import (
 
 UPLOAD_BATCH_SIZE = 1_000
 EXPIRE_GRACE_PERIOD = 2
+
+
+def get_missing_count(db, target_dates):
+    """Calculate the number of missing dates in the given range."""
+    status_results = list(db['data_status'].find({'date': {'$in': target_dates}, 'status': 'present'}))
+    present_dates = {item['date'] for item in status_results}
+    missing_count = len(set(target_dates) - present_dates)
+    return missing_count, present_dates
+
+
+def pad_timeline(timeline_results, present_dates, target_dates):
+    """Ensure all days in range are present in timeline."""
+    timeline = []
+    for d in sorted(target_dates):
+        count = timeline_results.get(d, 0)
+        timeline.append({
+            'timestamp': d,
+            'count': count,
+            'has_data': d in present_dates
+        })
+    return timeline
+
+
+def validate_item(item, i, today_str, upload_time, expires_at):
+    """Validate a single CSV record."""
+    required_fields = ['src_ip', 'dest_ip', 'rule', 'count', 'date']
+    
+    # Check for missing fields
+    missing = [
+        f
+        for f in required_fields
+        if f not in item
+        or item[f] is None
+        or str(item[f]).strip() == ''
+    ]
+    if missing:
+        return None, f'Record {i} is missing required fields: {", ".join(missing)}'
+
+    date_str = item['date']
+    if date_str == today_str:
+        # ignore any data for "today"
+        return None, None
+
+    item['uploaded_at'] = upload_time
+    item['expires_at'] = expires_at
+
+    # Validate count is integer
+    try:
+        item['count'] = int(item['count'])
+    except (ValueError, TypeError):
+        return None, f'Record {i} has invalid count: {item["count"]}'
+
+    # validate/parse ports
+    try:
+        ports_val = item.get('ports', '')
+        item['ports'] = [] if not ports_val else [int(p) for p in ports_val.split(':')]
+    except (ValueError, TypeError):
+        return None, f'Record {i} has invalid ports: {item["ports"]}'
+        
+    return item, None
 
 
 def register_routes(app):
@@ -86,8 +148,8 @@ def register_routes(app):
 
         try:
             result = db['summaries'].delete_many({'date': date})
-            # schedule a rebuild of the index
-            build_correlations(db)
+            # schedule a rebuild of the index as a background task
+            threading.Thread(target=build_correlations, args=(db,)).start()
             # Reset status to "missing" by removing
             db['data_status'].delete_one({'date': date})
             return {'message': f'Deleted {result.deleted_count} records for {date}'}
@@ -107,7 +169,6 @@ def register_routes(app):
         stream = io.TextIOWrapper(file.stream, encoding='utf-8')
         reader = csv.DictReader(stream)
 
-        required_fields = ['src_ip', 'dest_ip', 'rule', 'count', 'date']
         upload_time = datetime.now()
         today_str = upload_time.strftime('%Y-%m-%d')
         # Data expires after LAST_N_DAYS + grace period
@@ -115,77 +176,85 @@ def register_routes(app):
 
         insert_batch = []
         correlated_ops = []
+        correlated_rule_port_ops = []
         total_count = 0
         date_count = defaultdict(int)
 
         logging.info(f'Starting upload processing (passed={(datetime.now() - t0).seconds:.2f}s)')
 
         try:
-            for i, item in enumerate(reader):
-                # Check for missing fields
-                missing = [
-                    f
-                    for f in required_fields
-                    if f not in item
-                    or item[f] is None
-                    or str(item[f]).strip() == ''
-                ]
-                if missing:
-                    return {'message': f'Record {i} is missing required fields: {", ".join(missing)}'}, 400
-
-                date_str = item['date']
-                if date_str == today_str:
-                    # ignore any data for "today"
-                    continue
-
-                date_count[date_str] += 1
-
-                item['uploaded_at'] = upload_time
-                item['expires_at'] = expires_at
-
-                # Validate count is integer
-                try:
-                    item['count'] = int(item['count'])
-                except (ValueError, TypeError):
-                    return {'message': f'Record {i} has invalid count: {item["count"]}'}, 400
-
-                # validate/parse ports
-                try:
-                    ports_val = item.get('ports', '')
-                    item['ports'] = [] if not ports_val else [int(p) for p in ports_val.split(':')]
-                except (ValueError, TypeError):
-                    return {'message': f'Record {i} has invalid ports: {item["ports"]}'}, 400
-
-                # item has been validated, queue it for insert
-                insert_batch.append(item)
-
-                # queue an update on the correlated_data collection
-                for direction in ['src', 'dst']:
-                    correlated_ops.append(UpdateOne(
-                        {
-                            'ip': item['src_ip'],
-                            'rule_id': item['rule'],
-                            'direction': direction,
-                        },
-                        {
-                            '$inc': {'hit_count': item['count']},
-                            '$max': {'last_seen': item['date']},
-                            '$min': {'first_seen': item['date']},
-                            '$set': {'expires_at': item['expires_at']},
-                        },
-                        upsert=True,
+            # We'll process the CSV in batches to allow parallel validation of batch items
+            items_buffer = []
+            
+            def process_batch(current_items):
+                nonlocal total_count, insert_batch, correlated_ops, correlated_rule_port_ops
+                
+                with ThreadPoolExecutor() as executor:
+                    # Validate items in parallel
+                    results = list(executor.map(
+                        lambda x: validate_item(x[1], x[0], today_str, upload_time, expires_at),
+                        current_items
                     ))
+                
+                for item, error in results:
+                    if error:
+                        raise ValueError(error)
+                    if not item:
+                        continue
+                    
+                    date_str = item['date']
+                    date_count[date_str] += 1
+                    
+                    insert_batch.append(item)
+                    for direction in ['src', 'dst']:
+                        correlated_ops.append(UpdateOne(
+                            {
+                                'ip': item['src_ip'] if direction == 'src' else item['dest_ip'],
+                                'rule_id': item['rule'],
+                                'direction': direction,
+                            },
+                            {
+                                '$inc': {f'activity.{item["date"]}': item['count']},
+                                '$set': {'expires_at': item['expires_at']},
+                            },
+                            upsert=True,
+                        ))
 
-                if len(insert_batch) >= UPLOAD_BATCH_SIZE:
-                    db['summaries'].insert_many(insert_batch)
-                    db['correlated_data'].bulk_write(correlated_ops)
-                    total_count += len(insert_batch)
-                    insert_batch = []
-                    correlated_ops = []
+                    for port in item['ports']:
+                        correlated_rule_port_ops.append(UpdateOne(
+                            {
+                                'rule_id': item['rule'],
+                                'port': port,
+                            },
+                            {
+                                '$inc': {f'activity.{item["date"]}': item['count']},
+                                '$set': {'expires_at': item['expires_at']},
+                            },
+                            upsert=True,
+                        ))
+
+                    if len(insert_batch) >= UPLOAD_BATCH_SIZE:
+                        db['summaries'].insert_many(insert_batch)
+                        db['correlated_rule_ip'].bulk_write(correlated_ops)
+                        db['correlated_rule_ports'].bulk_write(correlated_rule_port_ops)
+                        total_count += len(insert_batch)
+                        insert_batch = []
+                        correlated_ops = []
+                        correlated_rule_port_ops = []
+
+            for i, row in enumerate(reader):
+                items_buffer.append((i, row))
+                if len(items_buffer) >= UPLOAD_BATCH_SIZE:
+                    process_batch(items_buffer)
+                    items_buffer = []
+            
+            if items_buffer:
+                process_batch(items_buffer)
 
             if insert_batch:
                 db['summaries'].insert_many(insert_batch)
-                db['correlated_data'].bulk_write(correlated_ops)
+                db['correlated_rule_ip'].bulk_write(correlated_ops)
+                db['correlated_rule_ports'].bulk_write(correlated_rule_port_ops)
                 total_count += len(insert_batch)
 
             # update cumulated data_status
@@ -196,6 +265,8 @@ def register_routes(app):
                     upsert=True
                 )
 
+        except ValueError as ve:
+            return {'message': str(ve)}, 400
         except Exception as e:
             logging.error(f'Upload error: {str(e)}')
             return {'message': f'Upload failed: {str(e)}'}, 500
@@ -218,53 +289,48 @@ def register_routes(app):
             for i in range(last_n_days + 1)
         ]
         
-        # 1. Timeline (still need to use summaries or we could have aggregated timeline in correlated)
-        # Actually, correlated_data doesn't have daily counts, it has hit_count per IP/rule/dir.
-        # So for timeline we still need summaries OR a third collection.
-        # The request said: "only include data we care about... hit_count: 123, last_seen: ISODate"
-        # This structure is NOT good for timeline if we want daily granularity.
-        # But maybe the user meant we should use correlated_data for the hits tables.
-        
-        # Let's keep timeline on summaries for now, as it's date-specific.
-        # BUT the hits (src_hits, dst_hits) can come from correlated_data!
-        
-        # For timeline, we can still use the efficient summaries index on date.
-        pipeline_timeline = [
-            {'$match': {'$or': [{'src_ip': ip}, {'dest_ip': ip}], 'date': {'$in': target_dates}}},
-            {'$group': {'_id': '$date', 'count': {'$sum': '$count'}}},
-            {'$sort': {'_id': 1}}
-        ]
-        timeline_raw = list(db['summaries'].aggregate(pipeline_timeline))
-        timeline_results = {item['_id']: item['count'] for item in timeline_raw}
+        # 1. present_dates for the lookback period
+        missing_count, present_dates = get_missing_count(db, target_dates)
 
-        # 2. Hits from correlated_data
-        src_hits_raw = db['correlated_data'].find({'ip': ip, 'direction': 'src'}).sort('hit_count', -1)
-        src_hits = [
-            {'rule': item['rule_id'], 'count': item['hit_count'], 'last_activity': item['last_seen']}
-            for item in src_hits_raw
-        ]
+        # 2. Results from correlated_rule_ip
+        src_hits_raw = list(db['correlated_rule_ip'].find({'ip': ip, 'direction': 'src'}))
+        dst_hits_raw = list(db['correlated_rule_ip'].find({'ip': ip, 'direction': 'dst'}))
         
-        dst_hits_raw = db['correlated_data'].find({'ip': ip, 'direction': 'dst'}).sort('hit_count', -1)
-        dst_hits = [
-            {'rule': item['rule_id'], 'count': item['hit_count'], 'last_activity': item['last_seen']}
-            for item in dst_hits_raw
-        ]
+        timeline_results = defaultdict(int)
+        src_hits = []
+        for item in src_hits_raw:
+            activity = item.get('activity', {})
+            total_hits = sum(activity.values())
+            last_activity = max(activity.keys()) if activity else None
+            src_hits.append({
+                'rule': item['rule_id'],
+                'count': total_hits,
+                'last_activity': last_activity
+            })
+            for date, count in activity.items():
+                if date in target_dates:
+                    timeline_results[date] += count
 
-        # 3. present_dates for the lookback period
-        # Use data_status which is already fast!
-        status_results = list(db['data_status'].find({'date': {'$in': target_dates}, 'status': 'present'}))
-        present_dates = {item['date'] for item in status_results}
-        missing_count = len(set(target_dates) - present_dates)
+        dst_hits = []
+        for item in dst_hits_raw:
+            activity = item.get('activity', {})
+            total_hits = sum(activity.values())
+            last_activity = max(activity.keys()) if activity else None
+            dst_hits.append({
+                'rule': item['rule_id'],
+                'count': total_hits,
+                'last_activity': last_activity
+            })
+            for date, count in activity.items():
+                if date in target_dates:
+                    timeline_results[date] += count
+
+        # Sort hits by count
+        src_hits.sort(key=lambda x: x['count'], reverse=True)
+        dst_hits.sort(key=lambda x: x['count'], reverse=True)
 
         # Ensure all days in range are present in timeline
-        timeline = []
-        for d in sorted(target_dates):
-            count = timeline_results.get(d, 0)
-            timeline.append({
-                'timestamp': d,
-                'count': count,
-                'has_data': d in present_dates
-            })
+        timeline = pad_timeline(timeline_results, present_dates, target_dates)
         
         warning = None
         if missing_count > 0:
@@ -290,62 +356,65 @@ def register_routes(app):
             for i in range(last_n_days + 1)
         ]
 
-        # 1. Timeline from summaries
-        pipeline_timeline = [
-            {'$match': {'rule': rule, 'date': {'$in': target_dates}}},
-            {'$group': {'_id': '$date', 'count': {'$sum': '$count'}}},
-            {'$sort': {'_id': 1}}
-        ]
-        timeline_raw = list(db['summaries'].aggregate(pipeline_timeline))
-        timeline_results = {item['_id']: item['count'] for item in timeline_raw}
-
-        # 2. Active sources and destinations from correlated_data
-        active_sources_raw = db['correlated_data'].find({'rule_id': rule, 'direction': 'src'}).sort('hit_count', -1).limit(100)
-        active_sources = [
-            {'ip': item['ip'], 'count': item['hit_count'], 'last_activity': item['last_seen']}
-            for item in active_sources_raw
-        ]
+        # 1. present_dates from data_status
+        missing_count, present_dates = get_missing_count(db, target_dates)
+        # 2. Results from correlated_rule_ip
+        active_sources_raw = list(db['correlated_rule_ip'].find({'rule_id': rule, 'direction': 'src'}))
+        active_destinations_raw = list(db['correlated_rule_ip'].find({'rule_id': rule, 'direction': 'dst'}))
         
-        active_destinations_raw = db['correlated_data'].find({'rule_id': rule, 'direction': 'dst'}).sort('hit_count', -1).limit(100)
-        active_destinations = [
-            {'ip': item['ip'], 'count': item['hit_count'], 'last_activity': item['last_seen']}
-            for item in active_destinations_raw
-        ]
+        timeline_results = defaultdict(int)
+        
+        active_sources = []
+        for item in active_sources_raw:
+            activity = item.get('activity', {})
+            total_hits = sum(activity.values())
+            last_activity = max(activity.keys()) if activity else None
+            active_sources.append({
+                'ip': item['ip'],
+                'count': total_hits,
+                'last_activity': last_activity
+            })
+            for date, count in activity.items():
+                if date in target_dates:
+                    timeline_results[date] += count
 
-        # 3. Ports - still need to use summaries because ports are in a list there 
-        # and we didn't add ports to correlated_data schema requested by user.
-        # User only said: "ip", "rule_id", "direction", "hit_count", "last_seen"
-        pipeline_ports = [
-            {'$match': {'rule': rule}},
-            {'$unwind': '$ports'},
-            {'$group': {
-                '_id': '$ports',
-                'count': {'$sum': '$count'},
-                'last_activity': {'$max': '$date'}
-            }},
-            {'$sort': {'count': -1}},
-            {'$limit': 100}
-        ]
-        ports_raw = list(db['summaries'].aggregate(pipeline_ports))
-        ports = [
-            {'port': int(item['_id']), 'count': item['count'], 'last_activity': item['last_activity']}
-            for item in ports_raw
-        ]
+        active_destinations = []
+        for item in active_destinations_raw:
+            activity = item.get('activity', {})
+            total_hits = sum(activity.values())
+            last_activity = max(activity.keys()) if activity else None
+            active_destinations.append({
+                'ip': item['ip'],
+                'count': total_hits,
+                'last_activity': last_activity
+            })
+            for date, count in activity.items():
+                if date in target_dates:
+                    timeline_results[date] += count
 
-        # 4. present_dates from data_status
-        status_results = list(db['data_status'].find({'date': {'$in': target_dates}, 'status': 'present'}))
-        present_dates = {item['date'] for item in status_results}
-        missing_count = len(set(target_dates) - present_dates)
+        # 3. Ports from correlated_rule_ports
+        ports_raw = list(db['correlated_rule_ports'].find({'rule_id': rule}))
+        ports = []
+        for item in ports_raw:
+            activity = item.get('activity', {})
+            total_hits = sum(activity.values())
+            last_activity = max(activity.keys()) if activity else None
+            ports.append({
+                'port': int(item['port']),
+                'count': total_hits,
+                'last_activity': last_activity
+            })
+
+        # Sort results
+        active_sources.sort(key=lambda x: x['count'], reverse=True)
+        active_sources = active_sources[:100]
+        active_destinations.sort(key=lambda x: x['count'], reverse=True)
+        active_destinations = active_destinations[:100]
+        ports.sort(key=lambda x: x['count'], reverse=True)
+        ports = ports[:100]
 
         # Ensure all days in range are present in timeline
-        timeline = []
-        for d in sorted(target_dates):
-            count = timeline_results.get(d, 0)
-            timeline.append({
-                'timestamp': d,
-                'count': count,
-                'has_data': d in present_dates
-            })
+        timeline = pad_timeline(timeline_results, present_dates, target_dates)
 
         warning = None
         if missing_count > 0:
