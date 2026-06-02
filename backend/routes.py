@@ -68,7 +68,7 @@ def register_routes(app):
         if not data:
             return {'message': 'No data provided'}, 400
         
-        required_fields = ['src_ip', 'dest_ip', 'rule', 'count', 'date', 'ports']
+        required_fields = ['src_ip', 'dest_ip', 'rule', 'count', 'date']
         upload_time = datetime.now()
         today_str = upload_time.strftime('%Y-%m-%d')
         # Data expires after LAST_N_DAYS + 2
@@ -81,7 +81,9 @@ def register_routes(app):
             missing = [
                 f
                 for f in required_fields
-                if f not in item or item[f] is None or str(item[f]).strip() == ''
+                if f not in item
+                   or item[f] is None
+                   or str(item[f]).strip() == ''
             ]
             if missing:
                 return {'message': f'Record {i} is missing required fields: {", ".join(missing)}'}, 400
@@ -101,7 +103,8 @@ def register_routes(app):
 
             # Handle ports (a list of ports, separated by ":")
             try:
-                item['ports'] = [int(p) for p in item['ports'].split(':')]
+                # ports can be empty if e.g.: only icmp is allowed
+                item['ports'] = [] if not item['ports'] else [int(p) for p in item['ports'].split(':')]
             except (ValueError, TypeError):
                 return {'message': f'Record {i} has invalid ports: {item["ports"]}'}, 400
                 

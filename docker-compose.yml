@@ -14,6 +14,11 @@ services:
           | eval ports=mvjoin(ports,":")
     depends_on:
       - mongodb
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
   mongodb:
     image: mongo:latest
