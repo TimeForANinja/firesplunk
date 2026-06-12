@@ -11,6 +11,9 @@ const API_BASE_URL = '';
 let ipTimelineChart = null;
 let ruleTimelineChart = null;
 let missingData = [];
+let indexState = null;
+let indexStateTimer = null;
+let activeTasks = [];
 
 // Search state
 let isSearching = false;
@@ -31,8 +34,151 @@ function showView(viewId) {
     
     if (viewId === 'upload') {
         loadMissingData();
+        startIndexStatePolling();
+    } else {
+        stopIndexStatePolling();
     }
 }
+
+/**
+ * Periodically fetches index state and active tasks.
+ */
+function startIndexStatePolling() {
+    if (indexStateTimer) return;
+    loadIndexState();
+    loadActiveTasks();
+    indexStateTimer = setInterval(() => {
+        loadIndexState();
+        loadActiveTasks();
+    }, 5000); // Poll every 5 seconds
+}
+
+function stopIndexStatePolling() {
+    if (indexStateTimer) {
+        clearInterval(indexStateTimer);
+        indexStateTimer = null;
+    }
+}
+
+/**
+ * Fetches current index state.
+ */
+async function loadIndexState() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/index/state`);
+        indexState = await response.json();
+    } catch (error) {
+        console.error('Error loading index state:', error);
+    }
+}
+
+/**
+ * Fetches active tasks.
+ */
+async function loadActiveTasks() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/tasks`);
+        const data = await response.json();
+        activeTasks = data.tasks || [];
+        renderTaskList();
+    } catch (error) {
+        console.error('Error loading active tasks:', error);
+    }
+}
+
+/**
+ * Manually triggers an index rebuild.
+ */
+async function requestRebuild() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/index/rebuild`, {
+            method: 'POST'
+        });
+        if (response.ok) {
+            loadActiveTasks();
+        } else {
+            alert('Failed to request rebuild');
+        }
+    } catch (error) {
+        console.error('Error requesting rebuild:', error);
+        alert('Error requesting rebuild');
+    }
+}
+
+/**
+ * Renders the active tasks in the UI.
+ */
+function renderTaskList() {
+    const container = document.getElementById('task-list-container');
+    const list = document.getElementById('task-list');
+    if (!container || !list) return;
+
+    if (activeTasks.length === 0) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    container.classList.remove('hidden');
+    list.innerHTML = '';
+
+    activeTasks.forEach(task => {
+        const div = document.createElement('div');
+        div.className = 'bg-white border rounded p-3 flex flex-col gap-1 shadow-sm';
+        
+        const header = document.createElement('div');
+        header.className = 'flex justify-between items-center';
+        
+        const type = document.createElement('span');
+        type.className = 'font-bold text-sm uppercase text-gray-700';
+        type.innerText = task.type.replace('_', ' ');
+        
+        const state = document.createElement('span');
+        let stateClass = 'bg-gray-100 text-gray-800';
+        if (task.state === 'work-in-progress') {
+            stateClass = 'bg-blue-100 text-blue-800';
+        } else if (task.state === 'done') {
+            stateClass = 'bg-green-100 text-green-800';
+        } else if (task.state === 'failed') {
+            stateClass = 'bg-red-100 text-red-800';
+        }
+        state.className = `text-xs px-2 py-0.5 rounded-full font-medium ${stateClass}`;
+        state.innerText = task.state;
+        
+        header.appendChild(type);
+        header.appendChild(state);
+        
+        const progressContainer = document.createElement('div');
+        progressContainer.className = 'w-full bg-gray-200 rounded-full h-2 mt-1';
+        
+        const progressBar = document.createElement('div');
+        let barClass = 'bg-blue-600';
+        if (task.state === 'done') barClass = 'bg-green-600';
+        if (task.state === 'failed') barClass = 'bg-red-600';
+        progressBar.className = `${barClass} h-2 rounded-full transition-all duration-500`;
+        progressBar.style.width = `${task.progress}%`;
+        
+        progressContainer.appendChild(progressBar);
+        
+        const info = document.createElement('div');
+        info.className = 'text-xs text-gray-500 flex justify-between';
+        
+        const leftInfo = document.createElement('span');
+        leftInfo.innerText = task.additional_info;
+        
+        const rightInfo = document.createElement('span');
+        rightInfo.innerText = `${task.progress}%`;
+        
+        info.appendChild(leftInfo);
+        info.appendChild(rightInfo);
+        
+        div.appendChild(header);
+        div.appendChild(progressContainer);
+        div.appendChild(info);
+        
+        list.appendChild(div);
+    });
+}
+
 
 // =============================================================================
 // DATA MANAGEMENT (UPLOAD & OVERVIEW)
@@ -43,7 +189,7 @@ function showView(viewId) {
  */
 async function loadMissingData() {
     try {
-        const response = await fetch(`${API_BASE_URL}/summaries/missing`);
+        const response = await fetch(`${API_BASE_URL}/summaries/status`);
         const data = await response.json();
         missingData = data.days;
         renderDataManagementTable();
@@ -487,3 +633,4 @@ function sortTable(containerId, colIndex) {
 // =============================================================================
 
 loadMissingData();
+startIndexStatePolling();

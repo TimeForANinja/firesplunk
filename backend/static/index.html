@@ -26,11 +26,22 @@
         <section id="upload-view" class="view">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-semibold">Data Management</h2>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-4">
+                    <button onclick="requestRebuild()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm transition-colors">
+                        Request Index Rebuild
+                    </button>
                     <label class="text-sm text-gray-600">
                         <input type="checkbox" id="filter-incomplete" onchange="renderTable()" class="mr-1">
                         Only incomplete
                     </label>
+                </div>
+            </div>
+
+            <!-- Task List -->
+            <div id="task-list-container" class="mb-8 hidden">
+                <h3 class="text-lg font-medium mb-2">Active Tasks</h3>
+                <div id="task-list" class="space-y-2">
+                    <!-- Tasks will be rendered here -->
                 </div>
             </div>
 
@@ -68,7 +79,7 @@
         <section id="search-ip-view" class="view hidden">
             <h2 class="text-xl font-semibold mb-4">Search IP</h2>
             <div class="mb-6 flex gap-2">
-                <input type="text" id="ip-input" placeholder="Enter IP Address" class="border p-2 rounded w-full max-w-sm">
+                <input type="text" id="ip-input" placeholder="Enter IP Address" class="border p-2 rounded w-full max-w-sm" onkeydown="if(event.key==='Enter') searchIP()">
                 <button onclick="searchIP()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Search</button>
             </div>
 
@@ -109,7 +120,7 @@
         <section id="search-rule-view" class="view hidden">
             <h2 class="text-xl font-semibold mb-4">Search Firewall Rule</h2>
             <div class="mb-6 flex gap-2">
-                <input type="text" id="rule-input" placeholder="Enter Rule Name" class="border p-2 rounded w-full max-w-sm">
+                <input type="text" id="rule-input" placeholder="Enter Rule Name" class="border p-2 rounded w-full max-w-sm" onkeydown="if(event.key==='Enter') searchRule()">
                 <button onclick="searchRule()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Search</button>
             </div>
 

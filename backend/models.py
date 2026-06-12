@@ -59,3 +59,21 @@ class RuleSearchResultSchema(Schema):
 
 class MissingDataResponseSchema(Schema):
     days = List(Nested(MissingDataSchema), metadata={'description': 'List of status records for the lookback period'})
+
+class IndexStateSchema(Schema):
+    state = String(metadata={'description': 'Current state of the index'})
+    last_state_change = String(metadata={'description': 'Timestamp of last state change'})
+    additional_info = String(metadata={'description': 'Additional info like progress or estimated time'})
+    progress = Integer(metadata={'description': 'Progress percentage'})
+
+class TaskSchema(Schema):
+    id = String(metadata={'description': 'Unique task ID'})
+    type = String(metadata={'description': 'Task type (UPLOAD_DATA, DELETE_DATE, BUILD_INDEX)'})
+    state = String(metadata={'description': 'Current state (scheduled, work-in-progress, done, failed)'})
+    progress = Integer(metadata={'description': 'Progress percentage'})
+    additional_info = String(metadata={'description': 'Additional info/status message'})
+    created_at = DateTime(metadata={'description': 'Task creation timestamp'})
+    last_state_change = DateTime(metadata={'description': 'Last state change timestamp'})
+
+class TaskListSchema(Schema):
+    tasks = List(Nested(TaskSchema), metadata={'description': 'List of active or recent tasks'})
