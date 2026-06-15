@@ -8,12 +8,35 @@ services:
       - "5000:5000"
     environment:
       - APP_MONGO_URI=mongodb://mongodb:27017/
+      - APP_CELERY_BROKER_URL=redis://redis:6379/0
+      - APP_CELERY_RESULT_BACKEND=redis://redis:6379/0
       - APP_SPLUNK_SERVER_URL=https://splunk.dmz.tfan.me
       - APP_SPLUNK_QUERY_TEMPLATE=index=net-fw 
           | stats count, values(dest_port) as ports by src_ip dest_ip rule date 
           | eval ports=mvjoin(ports,":")
     depends_on:
       - mongodb
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  celery_worker:
+    build: ./backend
+    command: celery -A celery_app worker --loglevel=info
+    environment:
+      - APP_MONGO_URI=mongodb://mongodb:27017/
+      - APP_CELERY_BROKER_URL=redis://redis:6379/0
+      - APP_CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - APP_SPLUNK_SERVER_URL=https://splunk.dmz.tfan.me
+      - APP_SPLUNK_QUERY_TEMPLATE=index=net-fw 
+          | stats count, values(dest_port) as ports by src_ip dest_ip rule date 
+          | eval ports=mvjoin(ports,":")
+    depends_on:
+      - mongodb
+      - redis
     deploy:
       resources:
         limits:
@@ -26,6 +49,11 @@ services:
       - "27017:27017"
     volumes:
       - mongo-data:/data/db
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
 
 volumes:
   mongo-data:

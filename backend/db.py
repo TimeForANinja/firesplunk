@@ -18,6 +18,8 @@ def init_db(db: pymongo.database.Database, index_manager=None):
     db['correlated_rule_ip'].create_index("expires_at", expireAfterSeconds=0)
     db['correlated_rule_ports'].create_index([("rule_id", 1), ("port", 1)])
     db['correlated_rule_ports'].create_index("expires_at", expireAfterSeconds=0)
+    db['tasks'].create_index("created_at")
+    db['tasks'].create_index("last_state_change")
 
     # Initialize data_status from existing summaries
     logging.info("Initializing data_status from existing summaries...")

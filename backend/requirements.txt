@@ -2,3 +2,5 @@ apiflask
 pymongo
 flask-cors
 gunicorn
+celery
+redis
