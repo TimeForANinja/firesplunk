@@ -12,6 +12,7 @@ def init_db(db: pymongo.database.Database, index_manager=None):
     # Ensure indexes exist
     db['data_status'].create_index("date", unique=True)
     db['correlated_rule_ip'].create_index([("ip", 1), ("rule", 1)], unique=True)
+    db['correlated_rule_ip'].create_index([("rule", 1)]) # 2nd index to also speed up rule-based lookups
     db['correlated_rule_ports'].create_index([("rule", 1), ("port", 1)], unique=True)
     db['tasks'].create_index("created_at")
     db['tasks'].create_index("last_state_change")
