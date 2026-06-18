@@ -65,6 +65,7 @@ class IndexStateSchema(Schema):
     last_state_change = String(metadata={'description': 'Timestamp of last state change'})
     additional_info = String(metadata={'description': 'Additional info like progress or estimated time'})
     progress = Integer(metadata={'description': 'Progress percentage'})
+    is_up_to_date = Boolean(metadata={'description': 'Whether the index is considered up-to-date'})
 
 class TaskSchema(Schema):
     id = String(metadata={'description': 'Unique task ID'})
