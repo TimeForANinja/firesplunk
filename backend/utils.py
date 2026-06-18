@@ -25,27 +25,29 @@ def pad_timeline(timeline_results: Dict[str, int], present_dates: Set[str], targ
     return timeline
 
 
-def sum_activity_counters(raw_hits: List[Dict[str, Any]], field_name: str, activity_fields: List[str] = ['activity']) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+def sum_activity_counters(raw_hits: List[Dict[str, Any]], field_name: str, activity_fields: str = 'activity') -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
     Sums up activity counters and calculates last activity for a list of hits.
     Returns a tuple (processed_hits, timeline_results).
     """
     timeline_results = defaultdict(int)
     processed_hits = []
+
     for item in raw_hits:
         combined_activity = {}
-        for field in activity_fields:
-            activity = item.get(field, {})
-            if activity:
-                for date, count in activity.items():
-                    combined_activity[date] = combined_activity.get(date, 0) + count
-                    timeline_results[date] += count
-        
+        activity = item.get(activity_fields, {})
+        if not activity:
+            continue
+
+        for date, count in activity.items():
+            combined_activity[date] = combined_activity.get(date, 0) + count
+            timeline_results[date] += count
+
         total_hits = sum(combined_activity.values())
         last_activity = max(combined_activity.keys()) if combined_activity else None
         
         hit_data = {
-            field_name: item.get(field_name if field_name != 'rule' else 'rule_id'),
+            field_name: item.get(field_name),
             'count': total_hits,
             'last_activity': last_activity
         }

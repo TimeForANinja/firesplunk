@@ -6,8 +6,6 @@ from pymongo.synchronous.database import Database
 
 from shared.tasks import TaskType, TaskState
 
-DEBOUNCE_SECONDS = 300
-
 
 class TaskManager:
     def __init__(self, db: Database):
@@ -72,62 +70,3 @@ class TaskManager:
         # Sort final list by created_at time
         tasks.sort(key=lambda t: t['created_at'])
         return tasks
-
-    def get_index_state(self) -> Dict[str, Any]:
-        """Get the state of the most recent build index task and determine if it's up-to-date."""
-        # Logic for is_up_to_date:
-        # consider the index up-to-date if no task is scheduled / running / recently failed
-        # else consider it out-of-date
-
-        # Check for any scheduled or running tasks
-        active_task = self.db.tasks.find_one({
-            'state': {'$in': [TaskState.SCHEDULED.value, TaskState.WORK_IN_PROGRESS.value]}
-        })
-
-        # Check for recently failed tasks
-        # For simplicity, "recently" is defined as within the last 24 hours.
-        import datetime as dt
-        recent_threshold = dt.datetime.now() - dt.timedelta(hours=24)
-        failed_task = self.db.tasks.find_one({
-            'state': TaskState.FAILED.value,
-            'last_state_change': {'$gt': recent_threshold}
-        })
-
-        is_up_to_date = not (active_task or failed_task)
-
-        # Look for active build index tasks
-        active_build = self.db.tasks.find_one({
-            'type': TaskType.BUILD_INDEX.value,
-            'state': {'$in': [TaskState.SCHEDULED.value, TaskState.WORK_IN_PROGRESS.value]}
-        })
-        if active_build:
-            return {
-                "state": "building" if active_build['state'] == TaskState.WORK_IN_PROGRESS.value else "pending rebuild",
-                "last_state_change": active_build['last_state_change'].isoformat(),
-                "additional_info": active_build['additional_info'],
-                "progress": active_build['progress'],
-                "is_up_to_date": is_up_to_date
-            }
-
-        pending = self.db.tasks.find_one({
-            'type': TaskType.BUILD_INDEX.value,
-            'state': 'pending rebuild'
-        })
-        if pending:
-            elapsed = (dt.datetime.now() - pending['last_state_change']).total_seconds()
-            remaining = max(0, int(DEBOUNCE_SECONDS - elapsed))
-            return {
-                "state": "pending rebuild",
-                "last_state_change": pending['last_state_change'].isoformat(),
-                "additional_info": f"Debouncing... ({remaining}s left)",
-                "progress": 0,
-                "is_up_to_date": is_up_to_date
-            }
-
-        return {
-            "state": "up-to-date",
-            "last_state_change": dt.datetime.now().isoformat(),
-            "additional_info": "",
-            "progress": 100,
-            "is_up_to_date": is_up_to_date
-        }

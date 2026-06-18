@@ -3,7 +3,8 @@ FROM python:3.14-alpine
 WORKDIR /app
 
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ARG PIP_PROXY=""
+RUN pip install --no-cache-dir ${PIP_PROXY:+--proxy "$PIP_PROXY"} -r requirements.txt
 
 # Create static directory to ensure it exists
 RUN mkdir -p static

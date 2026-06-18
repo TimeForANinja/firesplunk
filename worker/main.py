@@ -13,8 +13,6 @@ from tasks.upload_data import UploadDataTask
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-BUILD_INDEX_DEBOUNCE_SECONDS = 300
-
 
 class Worker:
     def __init__(self):

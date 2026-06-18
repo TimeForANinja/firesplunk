@@ -1,3 +1,5 @@
+import logging
+import time
 from datetime import datetime
 from urllib.parse import quote, urljoin
 from collections import defaultdict
@@ -75,12 +77,6 @@ def register_routes(app):
 
         return {'days': days_data}
 
-    @app.get('/index/state')
-    @app.output(IndexStateSchema)
-    def get_index_state():
-        """Get the current state of the index."""
-        return app.config['TASK_MANAGER'].get_index_state()
-
     @app.post('/index/rebuild')
     def request_rebuild():
         """Manually request an index rebuild."""
@@ -128,9 +124,9 @@ def register_routes(app):
 
         # fetch results from correlated_rule_ip
         hits_raw = list(db['correlated_rule_ip'].find({'ip': ip}))
-
-        src_hits, timeline_src = sum_activity_counters(hits_raw, 'rule', ['activity-src'])
-        dst_hits, timeline_dst = sum_activity_counters(hits_raw, 'rule', ['activity-dst'])
+        # we want both src and dst activity, so we need to separate them
+        src_hits, timeline_src = sum_activity_counters(hits_raw, 'rule', 'activity-src')
+        dst_hits, timeline_dst = sum_activity_counters(hits_raw, 'rule', 'activity-dst')
 
         timeline_results = defaultdict(int)
         all_dates = set(timeline_src.keys()) | set(timeline_dst.keys())
@@ -161,13 +157,12 @@ def register_routes(app):
         db = app.config['MONGO_DB']
         # Get range of dates for the last N days
         target_dates = get_target_dates(last_n_days)
+
         # fetch results from correlated_rule_ip
-        active_sources_raw = list(db['correlated_rule_ip'].find({'rule_id': rule}))
-        # In rule search, we want all IPs that have EITHER activity-src or activity-dst for this rule.
-        # But we need to separate them.
-        
-        active_sources, timeline_src = sum_activity_counters(active_sources_raw, 'ip', ['activity-src'])
-        active_destinations, timeline_dst = sum_activity_counters(active_sources_raw, 'ip', ['activity-dst'])
+        active_sources_raw = list(db['correlated_rule_ip'].find({'rule': rule}))
+        # we want both src and dst activity, so we need to separate them
+        active_sources, timeline_src = sum_activity_counters(active_sources_raw, 'ip', 'activity-src')
+        active_destinations, timeline_dst = sum_activity_counters(active_sources_raw, 'ip', 'activity-dst')
 
         timeline_results = defaultdict(int)
         all_dates = set(timeline_src.keys()) | set(timeline_dst.keys())
@@ -175,7 +170,7 @@ def register_routes(app):
             timeline_results[d] = timeline_src.get(d, 0) + timeline_dst.get(d, 0)
 
         # fetch results from correlated_rule_ports, and sum activity counters per port/day
-        ports_raw = list(db['correlated_rule_ports'].find({'rule_id': rule}))
+        ports_raw = list(db['correlated_rule_ports'].find({'rule': rule}))
         ports, _ = sum_activity_counters(ports_raw, 'port')
 
         # Sort results

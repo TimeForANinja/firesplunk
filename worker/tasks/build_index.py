@@ -60,7 +60,7 @@ class BuildIndexTask(BaseTask):
         pipeline = [
             {'$group': {
                 '_id': '$date',
-                'count': {'$sum': 1},
+                'count': {'$sum': '$count'},
                 'uploaded_at': {'$first': '$uploaded_at'}
             }}
         ]
@@ -94,7 +94,7 @@ class BuildIndexTask(BaseTask):
             {'$group': {
                 '_id': {
                     'ip': '$_dirs.ip',
-                    'rule_id': '$rule',
+                    'rule': '$rule',
                     'type': '$_dirs.type',
                     'date': '$date',
                 },
@@ -103,7 +103,7 @@ class BuildIndexTask(BaseTask):
             {'$group': {
                 '_id': {
                     'ip': '$_id.ip',
-                    'rule_id': '$_id.rule_id',
+                    'rule': '$_id.rule',
                     'type': '$_id.type',
                 },
                 'activity': {'$push': {'k': '$_id.date', 'v': '$count'}},
@@ -111,19 +111,19 @@ class BuildIndexTask(BaseTask):
             {'$group': {
                 '_id': {
                     'ip': '$_id.ip',
-                    'rule_id': '$_id.rule_id',
+                    'rule': '$_id.rule',
                 },
                 'activities': {'$push': {'k': '$_id.type', 'v': {'$arrayToObject': '$activity'}}}
             }},
             {'$project': {
                 '_id': 0,
                 'ip': '$_id.ip',
-                'rule_id': '$_id.rule_id',
+                'rule': '$_id.rule',
                 'activity_data': {'$arrayToObject': '$activities'},
             }},
             {'$project': {
                 'ip': 1,
-                'rule_id': 1,
+                'rule': 1,
                 'activity-src': '$activity_data.src',
                 'activity-dst': '$activity_data.dst',
             }},
@@ -146,7 +146,7 @@ class BuildIndexTask(BaseTask):
             }},
             {'$project': {
                 '_id': 0,
-                'rule_id': '$_id.rule',
+                'rule': '$_id.rule',
                 'port': '$_id.port',
                 'activity': {'$arrayToObject': '$activity'},
             }},
@@ -158,7 +158,7 @@ class BuildIndexTask(BaseTask):
     def _recreate_indexes(self):
         logging.info("Recreating indexes...")
         self.db['correlated_rule_ip'].create_index(
-            [("ip", 1), ("rule_id", 1)]
+            [("ip", 1), ("rule", 1)]
         )
-        self.db['correlated_rule_ports'].create_index([("rule_id", 1), ("port", 1)])
+        self.db['correlated_rule_ports'].create_index([("rule", 1), ("port", 1)])
         self._progress_callback(100, "Done")

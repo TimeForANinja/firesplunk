@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 import gridfs
 from bson import ObjectId
-from pymongo import UpdateOne
+from pymongo import UpdateOne, InsertOne
 
 from shared.date import get_target_dates
 from shared.tasks import TaskState
@@ -134,6 +134,8 @@ def process_upload_stream(grid_out, db, progress_callback=None):
 
     # Update data_status for each date processed
     for date_str, count in date_count.items():
+        if date_str not in allowed_days:
+            continue
         db['data_status'].update_one(
             {'date': date_str},
             {
@@ -170,25 +172,20 @@ def _process_batch(db, current_items: List[Tuple[int, Dict]], allowed_dates: Lis
         # track date count
         date_count[item['date']] += item['count']
 
-        # summaries update
-        summaries_ops.append(UpdateOne(
-            {
-                'src_ip': item['src_ip'],
-                'dest_ip': item['dest_ip'],
-                'rule': item['rule'],
-                'date': item['date']
-            },
-            {
-                '$inc': {'count': item['count']},
-                '$addToSet': {'ports': {'$each': item['ports']}},
-                '$set': {'uploaded_at': item['uploaded_at']}
-            },
-            upsert=True
-        ))
+        # summaries insert
+        summaries_ops.append(InsertOne({
+            'src_ip': item['src_ip'],
+            'dest_ip': item['dest_ip'],
+            'rule': item['rule'],
+            'date': item['date'],
+            'count': item['count'],
+            'ports': item['ports'],
+            'uploaded_at': item['uploaded_at']
+        }))
 
         # IP correlations - Source
         correlation_ips_ops.append(UpdateOne(
-            {'ip': item['src_ip'], 'rule_id': item['rule']},
+            {'ip': item['src_ip'], 'rule': item['rule']},
             {
                 '$inc': {
                     f'activity-src.{item["date"]}': item['count']
@@ -198,7 +195,7 @@ def _process_batch(db, current_items: List[Tuple[int, Dict]], allowed_dates: Lis
         ))
         # IP correlations - Destination
         correlation_ips_ops.append(UpdateOne(
-            {'ip': item['dest_ip'], 'rule_id': item['rule']},
+            {'ip': item['dest_ip'], 'rule': item['rule']},
             {
                 '$inc': {
                     f'activity-dst.{item["date"]}': item['count']
@@ -208,8 +205,9 @@ def _process_batch(db, current_items: List[Tuple[int, Dict]], allowed_dates: Lis
         ))
         # Port correlations
         for port in item['ports']:
+            # TODO: this is inaccurate, since the count relates to a set of ports, not the individual ones
             correlation_ports_ops.append(UpdateOne(
-                {'rule_id': item['rule'], 'port': port},
+                {'rule': item['rule'], 'port': port},
                 {
                     '$inc': {f'activity.{item["date"]}': item['count']},
                 },

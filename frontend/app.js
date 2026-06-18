@@ -45,10 +45,8 @@ function showView(viewId) {
  */
 function startIndexStatePolling() {
     if (indexStateTimer) return;
-    loadIndexState();
     loadActiveTasks();
     indexStateTimer = setInterval(() => {
-        loadIndexState();
         loadActiveTasks();
     }, 5000); // Poll every 5 seconds
 }
@@ -57,18 +55,6 @@ function stopIndexStatePolling() {
     if (indexStateTimer) {
         clearInterval(indexStateTimer);
         indexStateTimer = null;
-    }
-}
-
-/**
- * Fetches current index state.
- */
-async function loadIndexState() {
-    try {
-        const response = await fetch(`${API_BASE_URL}/index/state`);
-        indexState = await response.json();
-    } catch (error) {
-        console.error('Error loading index state:', error);
     }
 }
 

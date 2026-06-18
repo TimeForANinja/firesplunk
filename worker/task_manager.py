@@ -92,38 +92,3 @@ class TaskManager:
         # Sort final list by created_at time
         tasks.sort(key=lambda t: t['created_at'])
         return tasks
-
-    def get_index_state(self):
-        # Look for active build index tasks
-        active_build = self.db.tasks.find_one({
-            'type': 'BUILD_INDEX',
-            'state': {'$in': ['scheduled', 'work-in-progress']}
-        })
-        if active_build:
-            return {
-                "state": "building" if active_build['state'] == 'work-in-progress' else "pending rebuild",
-                "last_state_change": active_build['last_state_change'].isoformat(),
-                "additional_info": active_build['additional_info'],
-                "progress": active_build['progress']
-            }
-        
-        pending = self.db.tasks.find_one({
-            'type': 'BUILD_INDEX',
-            'state': 'pending rebuild'
-        })
-        if pending:
-            elapsed = (datetime.now() - pending['last_state_change']).total_seconds()
-            remaining = max(0, int(DEBOUNCE_SECONDS - elapsed))
-            return {
-                "state": "pending rebuild",
-                "last_state_change": pending['last_state_change'].isoformat(),
-                "additional_info": f"Debouncing... ({remaining}s left)",
-                "progress": 0
-            }
-        
-        return {
-            "state": "up-to-date",
-            "last_state_change": datetime.now().isoformat(),
-            "additional_info": "",
-            "progress": 100
-        }

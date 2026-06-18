@@ -74,7 +74,6 @@ class TaskSchema(Schema):
     progress = Integer(metadata={'description': 'Progress percentage'})
     additional_info = String(metadata={'description': 'Additional info/status message'})
     created_at = DateTime(metadata={'description': 'Task creation timestamp'})
-    last_state_change = DateTime(metadata={'description': 'Last state change timestamp'})
 
 class TaskListSchema(Schema):
     tasks = List(Nested(TaskSchema), metadata={'description': 'List of active or recent tasks'})

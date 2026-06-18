@@ -17,12 +17,12 @@ FireSplunk uses three main collections in MongoDB to balance storage efficiency 
    - Automatically expires records via TTL index on `expires_at`.
 
 2. **`correlated_rule_ip`**: A high-performance aggregation layer for IP-Rule activity.
-   - Stores activity maps: `ip`, `rule_id`, `direction`, `activity` (dict mapping date to count), `expires_at`.
+   - Stores activity maps: `ip`, `rule`, `direction`, `activity` (dict mapping date to count), `expires_at`.
    - Used to power activity tables and timelines instantly.
    - Updated atomically during CSV uploads using `$inc`.
 
 3. **`correlated_rule_ports`**: Aggregation layer for Rule-Port activity.
-   - Stores activity maps: `rule_id`, `port`, `activity` (dict mapping date to count), `expires_at`.
+   - Stores activity maps: `rule`, `port`, `activity` (dict mapping date to count), `expires_at`.
    - Powers the "Involved Ports" view in rule searches.
 
 4. **`data_status`**: Tracks the completeness of the local database.

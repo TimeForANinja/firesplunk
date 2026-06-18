@@ -5,6 +5,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        - PIP_PROXY=${PIP_PROXY:-}
     ports:
       - "80:5000"
       - "5000:5000"
@@ -26,6 +28,8 @@ services:
     build:
       context: .
       dockerfile: worker/Dockerfile
+      args:
+        - PIP_PROXY=${PIP_PROXY:-}
     environment:
       - APP_MONGO_URI=mongodb://mongodb:27017/
       - APP_SPLUNK_SERVER_URL=https://splunk.dmz.tfan.me
