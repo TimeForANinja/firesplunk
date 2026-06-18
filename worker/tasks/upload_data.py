@@ -1,6 +1,7 @@
 import time
 import io
 import csv
+import sys
 from typing import Tuple, Dict, List
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -17,6 +18,10 @@ from .base import BaseTask
 
 UPLOAD_BATCH_SIZE = 50_000
 EXPIRE_GRACE_PERIOD = 2
+
+
+# increase csv field size limit, since we've been hitting a max field size error
+csv.field_size_limit(sys.maxsize)
 
 
 class UploadDataTask(BaseTask):
