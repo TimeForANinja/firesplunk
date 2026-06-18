@@ -6,17 +6,19 @@ from models import (
     MissingDataResponseSchema, UploadSchema, IPSearchResultSchema, RuleSearchResultSchema,
     IndexStateSchema, TaskListSchema
 )
-from utils import get_target_dates, get_missing_count, pad_timeline
+from shared.env import get_last_n_days, get_splunk_server_url, get_splunk_query_template
+from shared.date import get_target_dates
+from utils import get_missing_count, pad_timeline, sum_activity_counters, check_for_warnings
 
 UPLOAD_BATCH_SIZE = 1_000
 EXPIRE_GRACE_PERIOD = 2
 
 
 def register_routes(app):
-    # read required vars from config
-    last_n_days = int(app.config.get('LAST_N_DAYS', 30))
-    splunk_server_url = app.config.get('SPLUNK_SERVER_URL', 'https://splunk.example.com')
-    splunk_query_template = app.config.get('SPLUNK_QUERY_TEMPLATE', 'index=net-fw | stats count, values(dest_port) as ports by src_ip dest_ip rule')
+    # read required vars
+    last_n_days = get_last_n_days()
+    splunk_server_url = get_splunk_server_url()
+    splunk_query_template = get_splunk_query_template()
 
     @app.get('/')
     def index():
@@ -39,8 +41,9 @@ def register_routes(app):
 
         # Fetch status from data_status collection
         status_results = {
-            item['date']: item 
-            for item in app.config['MONGO_DB']['data_status'].find({'date': {'$in': target_dates}})
+            item['date']: item
+            for item
+            in app.config['MONGO_DB']['data_status'].find({'date': {'$in': target_dates}})
         }
 
         for date_str in sorted(target_dates, reverse=True):
@@ -81,20 +84,20 @@ def register_routes(app):
     @app.post('/index/rebuild')
     def request_rebuild():
         """Manually request an index rebuild."""
-        app.config['TASK_MANAGER'].add_task('BUILD_INDEX')
+        app.config['TASK_MANAGER'].add_build_index_task()
         return {'message': 'Rebuild requested'}
 
     @app.get('/tasks')
     @app.output(TaskListSchema)
     def get_tasks():
         """Get list of active and recent tasks."""
-        tasks = app.config['TASK_MANAGER'].get_tasks(limit_done=3)
+        tasks = app.config['TASK_MANAGER'].get_tasks(3)
         return {'tasks': tasks}
 
     @app.delete('/summaries/date/<date>')
     def clear_data(date):
         """Clear data for a specific date."""
-        app.config['TASK_MANAGER'].add_task('DELETE_DATE', {'date': date})
+        app.config['TASK_MANAGER'].add_delete_date_task(date)
         return {'message': f'Delete task for {date} scheduled'}
 
     @app.post('/summaries/upload')
@@ -108,10 +111,10 @@ def register_routes(app):
         file_id = task_manager.fs.put(file.stream, filename=file.filename)
         
         # Create task
-        task_manager.add_task('UPLOAD_DATA', {
-            'file_id': file_id,
-            'filename': file.filename
-        })
+        task_manager.add_upload_data_task(
+            str(file_id),
+            file.filename
+        )
         
         return {'message': f'Upload of {file.filename} scheduled'}, 202
 
@@ -122,58 +125,27 @@ def register_routes(app):
         db = app.config['MONGO_DB']
         # Get range of dates for the last N days
         target_dates = get_target_dates(last_n_days)
-        
-        # fetch date-range for the lookback period
-        missing_count, present_dates = get_missing_count(db, target_dates)
 
         # fetch results from correlated_rule_ip
-        src_hits_raw = list(db['correlated_rule_ip'].find({'ip': ip, 'direction': 'src'}))
-        dst_hits_raw = list(db['correlated_rule_ip'].find({'ip': ip, 'direction': 'dst'}))
+        hits_raw = list(db['correlated_rule_ip'].find({'ip': ip}))
 
-        # sum up activity counters per src/dst/day
+        src_hits, timeline_src = sum_activity_counters(hits_raw, 'rule', ['activity-src'])
+        dst_hits, timeline_dst = sum_activity_counters(hits_raw, 'rule', ['activity-dst'])
+
         timeline_results = defaultdict(int)
-        src_hits = []
-        for item in src_hits_raw:
-            activity = item.get('activity', {})
-            total_hits = sum(activity.values())
-            last_activity = max(activity.keys()) if activity else None
-            src_hits.append({
-                'rule': item['rule_id'],
-                'count': total_hits,
-                'last_activity': last_activity
-            })
-            for date, count in activity.items():
-                if date in target_dates:
-                    timeline_results[date] += count
-        dst_hits = []
-        for item in dst_hits_raw:
-            activity = item.get('activity', {})
-            total_hits = sum(activity.values())
-            last_activity = max(activity.keys()) if activity else None
-            dst_hits.append({
-                'rule': item['rule_id'],
-                'count': total_hits,
-                'last_activity': last_activity
-            })
-            for date, count in activity.items():
-                if date in target_dates:
-                    timeline_results[date] += count
+        all_dates = set(timeline_src.keys()) | set(timeline_dst.keys())
+        for d in all_dates:
+            timeline_results[d] = timeline_src.get(d, 0) + timeline_dst.get(d, 0)
 
         # (default) sort hits by count
         src_hits.sort(key=lambda x: x['count'], reverse=True)
         dst_hits.sort(key=lambda x: x['count'], reverse=True)
 
         # Ensure all days in range are present in timeline, defaulting to 0 otherwise
-        timeline = pad_timeline(timeline_results, present_dates, target_dates)
+        _, present_dates = get_missing_count(db, target_dates)
+        timeline = pad_timeline(dict(timeline_results), present_dates, target_dates)
 
-        warning = None
-        if missing_count > 0:
-            warning = f"missing data for {missing_count}/{len(target_dates)} days"
-
-        index_state = app.config['TASK_MANAGER'].get_index_state()
-        if index_state['state'] != 'up-to-date':
-            index_warning = "results may be inaccurate, index out-of-date"
-            warning = f"{warning}; {index_warning}" if warning else index_warning
+        warning = check_for_warnings(db, target_dates, app.config['TASK_MANAGER'])
 
         return {
             'timeline': timeline,
@@ -189,55 +161,22 @@ def register_routes(app):
         db = app.config['MONGO_DB']
         # Get range of dates for the last N days
         target_dates = get_target_dates(last_n_days)
-
-        # fetch date-range for the lookback period
-        missing_count, present_dates = get_missing_count(db, target_dates)
         # fetch results from correlated_rule_ip
-        active_sources_raw = list(db['correlated_rule_ip'].find({'rule_id': rule, 'direction': 'src'}))
-        active_destinations_raw = list(db['correlated_rule_ip'].find({'rule_id': rule, 'direction': 'dst'}))
+        active_sources_raw = list(db['correlated_rule_ip'].find({'rule_id': rule}))
+        # In rule search, we want all IPs that have EITHER activity-src or activity-dst for this rule.
+        # But we need to separate them.
+        
+        active_sources, timeline_src = sum_activity_counters(active_sources_raw, 'ip', ['activity-src'])
+        active_destinations, timeline_dst = sum_activity_counters(active_sources_raw, 'ip', ['activity-dst'])
 
-        # sum up activity counters per src/dst/day
         timeline_results = defaultdict(int)
-        active_sources = []
-        for item in active_sources_raw:
-            activity = item.get('activity', {})
-            total_hits = sum(activity.values())
-            last_activity = max(activity.keys()) if activity else None
-            active_sources.append({
-                'ip': item['ip'],
-                'count': total_hits,
-                'last_activity': last_activity
-            })
-            for date, count in activity.items():
-                if date in target_dates:
-                    timeline_results[date] += count
-
-        active_destinations = []
-        for item in active_destinations_raw:
-            activity = item.get('activity', {})
-            total_hits = sum(activity.values())
-            last_activity = max(activity.keys()) if activity else None
-            active_destinations.append({
-                'ip': item['ip'],
-                'count': total_hits,
-                'last_activity': last_activity
-            })
-            for date, count in activity.items():
-                if date in target_dates:
-                    timeline_results[date] += count
+        all_dates = set(timeline_src.keys()) | set(timeline_dst.keys())
+        for d in all_dates:
+            timeline_results[d] = timeline_src.get(d, 0) + timeline_dst.get(d, 0)
 
         # fetch results from correlated_rule_ports, and sum activity counters per port/day
         ports_raw = list(db['correlated_rule_ports'].find({'rule_id': rule}))
-        ports = []
-        for item in ports_raw:
-            activity = item.get('activity', {})
-            total_hits = sum(activity.values())
-            last_activity = max(activity.keys()) if activity else None
-            ports.append({
-                'port': int(item['port']),
-                'count': total_hits,
-                'last_activity': last_activity
-            })
+        ports, _ = sum_activity_counters(ports_raw, 'port')
 
         # Sort results
         active_sources.sort(key=lambda x: x['count'], reverse=True)
@@ -245,16 +184,10 @@ def register_routes(app):
         ports.sort(key=lambda x: x['count'], reverse=True)
 
         # Ensure all days in range are present in timeline
-        timeline = pad_timeline(timeline_results, present_dates, target_dates)
+        _, present_dates = get_missing_count(db, target_dates)
+        timeline = pad_timeline(dict(timeline_results), present_dates, target_dates)
 
-        warning = None
-        if missing_count > 0:
-            warning = f"missing data for {missing_count}/{len(target_dates)} days"
-        
-        index_state = app.config['TASK_MANAGER'].get_index_state()
-        if index_state['state'] != 'up-to-date':
-            index_warning = "results may be inaccurate, index out-of-date"
-            warning = f"{warning}; {index_warning}" if warning else index_warning
+        warning = check_for_warnings(db, target_dates, app.config['TASK_MANAGER'])
 
         return {
             'timeline': timeline,

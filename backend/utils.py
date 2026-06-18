@@ -1,31 +1,19 @@
-import csv
-import io
-import logging
-import os
 from collections import defaultdict
-from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor
-from pymongo import UpdateOne
+from typing import List, Dict, Any, Tuple, Set, Optional
+from pymongo.synchronous.database import Database
 
-UPLOAD_BATCH_SIZE = 1_000
-EXPIRE_GRACE_PERIOD = 2
+from shared.tasks import TaskType
 
-def get_target_dates(last_n_days):
-    """Returns a list of date strings for the last N days (including today)."""
-    now = datetime.now()
-    return [
-        (now - timedelta(days=i)).strftime('%Y-%m-%d')
-        for i in range(last_n_days)
-    ]
 
-def get_missing_count(db, target_dates):
+def get_missing_count(db: Database, target_dates: List[str]) -> Tuple[int, Set[str]]:
     """Calculates missing days and returns (missing_count, present_dates)."""
     status_results = list(db['data_status'].find({'date': {'$in': target_dates}}))
     present_dates = {item['date'] for item in status_results}
     missing_count = len(target_dates) - len(present_dates)
     return missing_count, present_dates
 
-def pad_timeline(timeline_results, present_dates, target_dates):
+
+def pad_timeline(timeline_results: Dict[str, int], present_dates: Set[str], target_dates: List[str]) -> List[Dict[str, Any]]:
     """Ensures all target dates are present in the timeline, with count 0 and has_data flag."""
     timeline = []
     for date_str in sorted(target_dates):
@@ -36,130 +24,50 @@ def pad_timeline(timeline_results, present_dates, target_dates):
         })
     return timeline
 
-def validate_item(item, i, today_str, upload_time, expires_at):
-    """Validates and parses a single CSV row."""
-    # check date
-    date_val = item.get('date')
-    if not date_val:
-        return None, f'Record {i} is missing date'
-    if date_val == today_str:
-        # skip today
-        return None, "Data for the current day is not supported"
-    
-    # validate/parse count
-    try:
-        item['count'] = int(item.get('count', 0))
-    except (ValueError, TypeError):
-        return None, f'Record {i} has invalid count: {item["count"]}'
-    
-    # set metadata
-    item['uploaded_at'] = upload_time
-    item['expires_at'] = expires_at
 
-    # validate/parse ports
-    try:
-        ports_val = item.get('ports', '')
-        item['ports'] = [] if not ports_val else [int(p) for p in ports_val.split(':')]
-    except (ValueError, TypeError):
-        return None, f'Record {i} has invalid ports: {item["ports"]}'
-        
-    return item, None
-
-def process_upload_stream(stream_or_file, db, progress_callback=None):
+def sum_activity_counters(raw_hits: List[Dict[str, Any]], field_name: str, activity_fields: List[str] = ['activity']) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
-    Process an upload stream and store records in the database.
-    This function is designed to be called from a background task.
+    Sums up activity counters and calculates last activity for a list of hits.
+    Returns a tuple (processed_hits, timeline_results).
     """
-    if hasattr(stream_or_file, 'read'):
-        # It's a file-like object (e.g., from GridFS)
-        if hasattr(stream_or_file, 'encoding'):
-            stream = stream_or_file
-        else:
-            stream = io.TextIOWrapper(stream_or_file, encoding='utf-8')
-    else:
-        # It's already a stream
-        stream = stream_or_file
-
-    reader = csv.DictReader(stream)
-
-    upload_time = datetime.now()
-    today_str = upload_time.strftime('%Y-%m-%d')
-    # Use a default if LAST_N_DAYS is not available (though it should be in env)
-    last_n_days = int(os.environ.get('APP_LAST_N_DAYS', 30))
-    expires_at = upload_time + timedelta(days=last_n_days + EXPIRE_GRACE_PERIOD)
-
-    total_count = 0
-    date_count = defaultdict(int)
-
-    def process_batch(current_items):
-        nonlocal total_count
+    timeline_results = defaultdict(int)
+    processed_hits = []
+    for item in raw_hits:
+        combined_activity = {}
+        for field in activity_fields:
+            activity = item.get(field, {})
+            if activity:
+                for date, count in activity.items():
+                    combined_activity[date] = combined_activity.get(date, 0) + count
+                    timeline_results[date] += count
         
-        with ThreadPoolExecutor() as executor:
-            # Validate items in parallel
-            results = list(executor.map(
-                lambda x: validate_item(x[1], x[0], today_str, upload_time, expires_at),
-                current_items
-            ))
+        total_hits = sum(combined_activity.values())
+        last_activity = max(combined_activity.keys()) if combined_activity else None
         
-        valid_items = [r[0] for r in results if r[0] is not None]
-        
-        if valid_items:
-            current_batch = []
-            for item in valid_items:
-                date_str = item['date']
-                date_count[date_str] += 1
-                
-                current_batch.append(UpdateOne(
-                    {
-                        'src_ip': item['src_ip'],
-                        'dest_ip': item['dest_ip'],
-                        'rule': item['rule'],
-                        'date': item['date']
-                    },
-                    {
-                        '$set': {
-                            'count': item['count'],
-                            'ports': item['ports'],
-                            'uploaded_at': item['uploaded_at'],
-                            'expires_at': item['expires_at']
-                        }
-                    },
-                    upsert=True
-                ))
-            
-            # Divide into sub-batches for parallel writes
-            sub_batch_size = max(1, len(current_batch) // 4)
-            sub_batches = [current_batch[i:i + sub_batch_size] for i in range(0, len(current_batch), sub_batch_size)]
-            
-            with ThreadPoolExecutor() as executor:
-                executor.map(lambda b: db['summaries'].bulk_write(b, ordered=False), sub_batches)
-            
-            total_count += len(valid_items)
+        hit_data = {
+            field_name: item.get(field_name if field_name != 'rule' else 'rule_id'),
+            'count': total_hits,
+            'last_activity': last_activity
+        }
+        processed_hits.append(hit_data)
+    
+    return processed_hits, dict(timeline_results)
 
-    batch = []
-    for i, row in enumerate(reader):
-        batch.append((i, row))
-        if len(batch) >= UPLOAD_BATCH_SIZE:
-            process_batch(batch)
-            batch = []
-            if progress_callback:
-                progress_callback(50, f"Processed {i+1} records...")
 
-    if batch:
-        process_batch(batch)
+def check_for_warnings(db: Database, target_dates: List[str], task_manager: Any) -> Optional[str]:
+    """Checks for data gaps and task status to return a warning message if needed."""
+    warning_parts = []
 
-    # Update data_status for each date processed
-    for date_str, count in date_count.items():
-        db['data_status'].update_one(
-            {'date': date_str},
-            {
-                '$set': {
-                    'count': count,
-                    'uploaded_at': upload_time
-                }
-            },
-            upsert=True
-        )
+    missing_count, _ = get_missing_count(db, target_dates)
+    if missing_count > 0:
+        warning_parts.append(f"missing data for {missing_count}/{len(target_dates)} days")
 
-    if progress_callback:
-        progress_callback(100, f"Upload complete. {total_count} records processed.")
+    tasks = task_manager.get_tasks()
+    if any(t['type'] == TaskType.BUILD_INDEX.value for t in tasks):
+        warning_parts.append("index build ongoing - results may be incomplete")
+    if any(t['type'] == TaskType.UPLOAD_DATA.value for t in tasks):
+        warning_parts.append("data import ongoing - results may be incomplete")
+    if any(t['type'] == TaskType.DELETE_DATE.value for t in tasks):
+        warning_parts.append("deletion ongoing - results may be incomplete")
+
+    return "; ".join(warning_parts) if warning_parts else None

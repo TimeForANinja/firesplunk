@@ -65,14 +65,33 @@ def generate_logs():
         current_date = start_date
         while current_date <= end_date:
             date_str = current_date.isoformat()
+            
+            # Use a dictionary to aggregate logs for the same (src_ip, dest_ip, rule, date)
+            # key: (src_ip, dest_ip, rule, date), value: {count: sum, ports: set}
+            daily_logs = {}
+            
             for _ in range(args.logs_per_day):
+                src = random.choice(src_ips)
+                dst = random.choice(dest_ips)
+                rule = random.choice(rules_pool)
+                port = random.choice(ports_pool)
+                count = random.randint(1, 100)
+                
+                key = (src, dst, rule, date_str)
+                if key not in daily_logs:
+                    daily_logs[key] = {"count": 0, "ports": set()}
+                
+                daily_logs[key]["count"] += count
+                daily_logs[key]["ports"].add(port)
+
+            for (src, dst, rule, d_str), data in daily_logs.items():
                 writer.writerow({
-                    "src_ip": random.choice(src_ips),
-                    "dest_ip": random.choice(dest_ips),
-                    "count": random.randint(1, 100),
-                    "ports": random.choice(ports_pool),
-                    "date": date_str,
-                    "rule": random.choice(rules_pool)
+                    "src_ip": src,
+                    "dest_ip": dst,
+                    "count": data["count"],
+                    "ports": ",".join(sorted(list(data["ports"]))),
+                    "date": d_str,
+                    "rule": rule
                 })
             current_date += timedelta(days=1)
 

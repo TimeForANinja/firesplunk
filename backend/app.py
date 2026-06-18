@@ -1,7 +1,7 @@
 from apiflask import APIFlask
 from flask_cors import CORS
 
-from db import init_db
+from shared.env import get_mongo_uri
 from routes import register_routes
 from task_manager import TaskManager
 from pymongo import MongoClient
@@ -29,15 +29,10 @@ app.config.from_prefixed_env(prefix='APP', loads=lambda x: x)
 
 
 # MongoDB Configuration
-client = MongoClient(app.config.get('MONGO_URI', 'mongodb://localhost:27017/'))
+client = MongoClient(get_mongo_uri())
 db = client.get_database('firesplunk')
-
-# Initialize Task Manager
-task_manager = TaskManager(db)
-
-
-app.config['TASK_MANAGER'] = task_manager
-app.config['MONGO_DB'] = init_db(db, index_manager=task_manager)
+app.config['MONGO_DB'] = db
+app.config['TASK_MANAGER'] = TaskManager(db)
 
 register_routes(app)
 
