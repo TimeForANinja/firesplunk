@@ -17,6 +17,7 @@ from .base import BaseTask
 
 
 UPLOAD_BATCH_SIZE = 50_000
+UPLOAD_BATCH_CHAR_LIMIT = 100_000_000  # 100MB worth of characters
 EXPIRE_GRACE_PERIOD = 2
 
 
@@ -120,12 +121,18 @@ def process_upload_stream(grid_out, db, progress_callback=None):
     start_time = time.time()
 
     batch = []
+    current_batch_chars = 0
     for i, row in enumerate(reader):
         batch.append((i, row))
-        if len(batch) >= UPLOAD_BATCH_SIZE:
+        # Estimate the size of the row in characters + 10% overhead for the list/dict structures
+        row_chars = int(sum(len(str(v)) for v in row.values()) * 1.1)
+        current_batch_chars += row_chars
+        # batch either if we've hit the batch size limit or character limit
+        if current_batch_chars >= UPLOAD_BATCH_CHAR_LIMIT or len(batch) >= UPLOAD_BATCH_SIZE:
             processed_count = _process_batch(db, batch, allowed_days, upload_time, date_count)
             total_count += processed_count
             batch = []
+            current_batch_chars = 0
 
             if progress_callback:
                 elapsed = time.time() - start_time
