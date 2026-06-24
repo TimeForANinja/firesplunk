@@ -61,17 +61,8 @@ def generate_logs():
     src_ips = [generate_random_ip() for _ in range(args.src_ips)]
     dest_ips = [generate_random_ip() for _ in range(args.destinations)]
     
-    # Ports can be single or range like "80:443". For simplicity, let's mix them.
-    # Common ports as base
-    base_ports = [80, 443, 22, 53, 25, 587, 3389, 8080]
-    ports_pool = []
-    for _ in range(args.ports):
-        if random.random() < 0.2: # 20% chance of range
-            p1 = random.randint(1, 65535)
-            p2 = random.randint(1, 65535)
-            ports_pool.append(f"{min(p1, p2)}:{max(p1, p2)}")
-        else:
-            ports_pool.append(str(random.randint(1, 65535)))
+    # Ports pool
+    ports_pool = [str(random.randint(1, 65535)) for _ in range(args.ports)]
     
     rules_pool = [f"r-{i}" for i in range(args.crs)]
 
@@ -79,7 +70,7 @@ def generate_logs():
     total_logs = days * args.logs_per_day
 
     with open(args.output, "w", newline="") as csvfile:
-        fieldnames = ["src_ip", "dest_ip", "count", "ports", "date", "rule"]
+        fieldnames = ["src_ip", "dest_ip", "dest_port", "count", "date", "rule"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
 
@@ -87,8 +78,8 @@ def generate_logs():
         while current_date <= end_date:
             date_str = current_date.isoformat()
             
-            # Use a dictionary to aggregate logs for the same (src_ip, dest_ip, rule, date)
-            # key: (src_ip, dest_ip, rule, date), value: {count: sum, ports: set}
+            # Use a dictionary to aggregate logs for the same (src_ip, dest_ip, port, rule, date)
+            # key: (src_ip, dest_ip, port, rule, date), value: count
             daily_logs = {}
             
             for _ in range(args.logs_per_day):
@@ -98,19 +89,18 @@ def generate_logs():
                 port = random.choice(ports_pool)
                 count = random.randint(1, 100)
                 
-                key = (src, dst, rule, date_str)
+                key = (src, dst, port, rule, date_str)
                 if key not in daily_logs:
-                    daily_logs[key] = {"count": 0, "ports": set()}
+                    daily_logs[key] = 0
                 
-                daily_logs[key]["count"] += count
-                daily_logs[key]["ports"].add(port)
+                daily_logs[key] += count
 
-            for (src, dst, rule, d_str), data in daily_logs.items():
+            for (src, dst, port, rule, d_str), count in daily_logs.items():
                 writer.writerow({
                     "src_ip": src,
                     "dest_ip": dst,
-                    "count": data["count"],
-                    "ports": ",".join(sorted(list(data["ports"]))),
+                    "dest_port": port,
+                    "count": count,
                     "date": d_str,
                     "rule": rule
                 })

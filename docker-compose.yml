@@ -13,9 +13,7 @@ services:
     environment:
       - APP_MONGO_URI=mongodb://mongodb:27017/
       - APP_SPLUNK_SERVER_URL=https://splunk.dmz.tfan.me
-      - APP_SPLUNK_QUERY_TEMPLATE=index=net-fw 
-          | stats count, values(dest_port) as ports by src_ip dest_ip rule date 
-          | eval ports=mvjoin(ports,":")
+      - APP_SPLUNK_QUERY_TEMPLATE=index=net-fw | stats count by src_ip dest_ip dest_port rule date
     depends_on:
       - mongodb
     deploy:
@@ -33,9 +31,7 @@ services:
     environment:
       - APP_MONGO_URI=mongodb://mongodb:27017/
       - APP_SPLUNK_SERVER_URL=https://splunk.dmz.tfan.me
-      - APP_SPLUNK_QUERY_TEMPLATE=index=net-fw 
-          | stats count, values(dest_port) as ports by src_ip dest_ip rule date 
-          | eval ports=mvjoin(ports,":")
+      - APP_SPLUNK_QUERY_TEMPLATE=index=net-fw | stats count by src_ip dest_ip dest_port rule date
     depends_on:
       - mongodb
     deploy:

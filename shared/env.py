@@ -10,4 +10,4 @@ def get_splunk_server_url() -> str:
     return os.environ.get('APP_SPLUNK_SERVER_URL', 'https://splunk.example.com')
 
 def get_splunk_query_template() -> str:
-    return os.environ.get('APP_SPLUNK_QUERY_TEMPLATE', 'index=net-fw | stats count, values(dest_port) as ports by src_ip dest_ip rule')
+    return os.environ.get('APP_SPLUNK_QUERY_TEMPLATE', 'index=net-fw | stats count by src_ip dest_ip dest_port rule')

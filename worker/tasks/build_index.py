@@ -135,9 +135,8 @@ class BuildIndexTask(BaseTask):
     def _build_port_correlations(self):
         logging.info("Building port correlations...")
         pipeline_ports = [
-            {'$unwind': '$ports'},
             {'$group': {
-                '_id': {'rule': '$rule', 'port': '$ports', 'date': '$date'},
+                '_id': {'rule': '$rule', 'port': '$port', 'date': '$date'},
                 'count': {'$sum': '$count'},
             }},
             {'$group': {
@@ -157,8 +156,10 @@ class BuildIndexTask(BaseTask):
 
     def _recreate_indexes(self):
         logging.info("Recreating indexes...")
+        # also see init_db
         self.db['correlated_rule_ip'].create_index(
-            [("ip", 1), ("rule", 1)]
+            [("ip", 1), ("rule", 1)], unique=True
         )
-        self.db['correlated_rule_ports'].create_index([("rule", 1), ("port", 1)])
+        self.db['correlated_rule_ip'].create_index([("rule", 1)])
+        self.db['correlated_rule_ports'].create_index([("rule", 1), ("port", 1)], unique=True)
         self._progress_callback(100, "Done")

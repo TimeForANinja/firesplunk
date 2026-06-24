@@ -79,19 +79,14 @@ def _validate_item(item, i: int, allowed_dates: List[str], upload_time: float):
     # set metadata
     item['uploaded_at'] = upload_time
 
-    # validate/parse ports
+    # validate/parse port
     try:
-        ports_val = item.get('ports', '')
-        if not ports_val:
-            item['ports'] = []
-        elif isinstance(ports_val, str) and ',' in ports_val:
-            item['ports'] = [int(p) for p in ports_val.split(',')]
-        elif isinstance(ports_val, str) and ':' in ports_val:
-            item['ports'] = [int(p) for p in ports_val.split(':')]
-        else:
-            item['ports'] = [int(ports_val)]
+        port_val = item.get('dest_port')
+        if port_val is None:
+            return None, f'Record {i} is missing dest_port'
+        item['port'] = int(port_val)
     except (ValueError, TypeError):
-        return None, f'Record {i} has invalid ports: {item.get("ports")}'
+        return None, f'Record {i} has invalid dest_port: {item.get("dest_port")}'
 
     return item, None
 
@@ -191,7 +186,7 @@ def _process_batch(db, current_items: List[Tuple[int, Dict]], allowed_dates: Lis
             'rule': item['rule'],
             'date': item['date'],
             'count': item['count'],
-            'ports': item['ports'],
+            'port': item['port'],
             'uploaded_at': item['uploaded_at']
         }))
 
@@ -216,15 +211,14 @@ def _process_batch(db, current_items: List[Tuple[int, Dict]], allowed_dates: Lis
             upsert=True
         ))
         # Port correlations
-        for port in item['ports']:
-            # TODO: this is inaccurate, since the count relates to a set of ports, not the individual ones
-            correlation_ports_ops.append(UpdateOne(
-                {'rule': item['rule'], 'port': port},
-                {
-                    '$inc': {f'activity.{item["date"]}': item['count']},
-                },
-                upsert=True
-            ))
+        port = item['port']
+        correlation_ports_ops.append(UpdateOne(
+            {'rule': item['rule'], 'port': port},
+            {
+                '$inc': {f'activity.{item["date"]}': item['count']},
+            },
+            upsert=True
+        ))
 
     # execute queries
     if summaries_ops:
