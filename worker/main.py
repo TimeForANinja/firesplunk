@@ -1,7 +1,7 @@
 import time
 import logging
 import signal
-from datetime import datetime
+from datetime import datetime, timedelta
 from pymongo import MongoClient
 
 from shared.env import get_mongo_uri
@@ -32,11 +32,41 @@ class Worker:
         logging.info("Worker started, polling for tasks...")
         while self.running:
             try:
+                self.check_stale_tasks()
                 self.process_next_task()
             except Exception as e:
                 logging.error(f"Error in worker loop: {e}", exc_info=True)
 
             time.sleep(5)
+
+    def check_stale_tasks(self):
+        # Mark tasks that haven't had a heartbeat in 5 minutes as STALE
+        # We only care about work-in-progress tasks
+        stale_threshold = datetime.now() - timedelta(minutes=5)
+        
+        # Also handle tasks that were just started but never got a heartbeat
+        # (they only have last_state_change)
+        
+        result = self.db.tasks.update_many(
+            {
+                'state': TaskState.WORK_IN_PROGRESS.value,
+                '$or': [
+                    {'last_heartbeat': {'$lt': stale_threshold}},
+                    {
+                        'last_heartbeat': {'$exists': False},
+                        'last_state_change': {'$lt': stale_threshold}
+                    }
+                ]
+            },
+            {
+                '$set': {
+                    'state': TaskState.STALE.value,
+                    'additional_info': 'Task marked as stale (no heartbeat for 5m)'
+                }
+            }
+        )
+        if result.modified_count > 0:
+            logging.info(f"Marked {result.modified_count} tasks as stale")
 
     def process_next_task(self):
         # Find a scheduled task and mark it as work-in-progress atomically
@@ -70,7 +100,12 @@ class Worker:
             else:
                 raise ValueError(f"Unknown task type: {task_type}")
 
-            state, info = task_obj.run()
+            if task_doc.get('is_retry'):
+                logging.info(f"Retrying task {task_id}")
+                state, info = task_obj.retry()
+            else:
+                state, info = task_obj.run()
+
             self.db.tasks.update_one(
                 {'_id': task_id},
                 {'$set': {

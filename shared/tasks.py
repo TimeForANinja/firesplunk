@@ -11,3 +11,4 @@ class TaskState(enum.Enum):
     WORK_IN_PROGRESS = 'work-in-progress'
     DONE = 'done'
     FAILED = 'failed'
+    STALE = 'stale'

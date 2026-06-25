@@ -90,6 +90,12 @@ def register_routes(app):
         tasks = app.config['TASK_MANAGER'].get_tasks(3)
         return {'tasks': tasks}
 
+    @app.post('/tasks/<task_id>/retry')
+    def retry_task(task_id):
+        """Manually retry a failed or stale task."""
+        app.config['TASK_MANAGER'].retry_task(task_id)
+        return {'message': f'Retry for task {task_id} scheduled'}
+
     @app.delete('/summaries/date/<date>')
     def clear_data(date):
         """Clear data for a specific date."""

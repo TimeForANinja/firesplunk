@@ -126,6 +126,8 @@ function renderTaskList() {
             stateClass = 'bg-green-100 text-green-800';
         } else if (task.state === 'failed') {
             stateClass = 'bg-red-100 text-red-800';
+        } else if (task.state === 'stale') {
+            stateClass = 'bg-red-100 text-red-800';
         }
         state.className = `text-xs px-2 py-0.5 rounded-full font-medium ${stateClass}`;
         state.innerText = task.state;
@@ -138,10 +140,16 @@ function renderTaskList() {
         
         const progressBar = document.createElement('div');
         let barClass = 'bg-blue-600';
+        let progress = task.progress;
+
         if (task.state === 'done') barClass = 'bg-green-600';
         if (task.state === 'failed') barClass = 'bg-red-600';
+        if (task.state === 'stale') {
+            barClass = 'bg-red-600';
+            progress = 100;
+        }
         progressBar.className = `${barClass} h-2 rounded-full transition-all duration-500`;
-        progressBar.style.width = `${task.progress}%`;
+        progressBar.style.width = `${progress}%`;
         
         progressContainer.appendChild(progressBar);
         
@@ -152,7 +160,7 @@ function renderTaskList() {
         leftInfo.innerText = task.additional_info;
         
         const rightInfo = document.createElement('span');
-        rightInfo.innerText = `${task.progress}%`;
+        rightInfo.innerText = `${progress}%`;
         
         info.appendChild(leftInfo);
         info.appendChild(rightInfo);
@@ -160,6 +168,25 @@ function renderTaskList() {
         div.appendChild(header);
         div.appendChild(progressContainer);
         div.appendChild(info);
+
+        if (task.state === 'failed' || task.state === 'stale') {
+            const retryBtn = document.createElement('button');
+            retryBtn.className = 'mt-2 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 py-1 px-2 rounded border border-gray-300 transition-colors';
+            retryBtn.innerText = 'Retry Task';
+            retryBtn.onclick = async () => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/tasks/${task.id}/retry`, { method: 'POST' });
+                    if (response.ok) {
+                        loadActiveTasks();
+                    } else {
+                        alert('Failed to retry task');
+                    }
+                } catch (error) {
+                    console.error('Error retrying task:', error);
+                }
+            };
+            div.appendChild(retryBtn);
+        }
         
         list.appendChild(div);
     });

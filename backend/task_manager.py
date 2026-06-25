@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any
 import gridfs
 from pymongo.synchronous.database import Database
@@ -53,6 +53,28 @@ class TaskManager:
             'last_state_change': datetime.now()
         })
         return task_id
+
+    def retry_task(self, task_id: str):
+        original_task = self.db.tasks.find_one({'_id': task_id})
+        if not original_task:
+            return
+
+        new_task_id = str(uuid.uuid4())
+        # Set created_at to just after the original task to ensure it's "underneath" in UI 
+        # and worked on before any subsequent regular tasks (as it's still older than them).
+        new_created_at = original_task['created_at'] + timedelta(seconds=1)
+
+        self.db.tasks.insert_one({
+            '_id': new_task_id,
+            'type': original_task['type'],
+            'data': original_task['data'],
+            'state': TaskState.SCHEDULED.value,
+            'progress': 0,
+            'additional_info': 'Retrying...',
+            'created_at': new_created_at,
+            'last_state_change': datetime.now(),
+            'is_retry': True
+        })
 
     def get_tasks(self, limit_done: int = 0) -> List[Dict[str, Any]]:
         # We'll get active tasks and optionally some done ones

@@ -7,6 +7,10 @@ from .base import BaseTask
 
 
 class BuildIndexTask(BaseTask):
+    def retry(self) -> Tuple[TaskState, str]:
+        # we should be able to simply retry the whole thing
+        return self.run()
+
     def run(self) -> Tuple[TaskState, str]:
         # a) check if we have a delete task scheduled
         delete_task = self.db.tasks.find_one({

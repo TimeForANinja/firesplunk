@@ -14,6 +14,7 @@ from shared.date import get_target_dates
 from shared.tasks import TaskState
 from shared.env import get_last_n_days
 from .base import BaseTask
+from .delete_date import delete_date_data
 
 
 UPLOAD_BATCH_SIZE = 50_000
@@ -44,6 +45,37 @@ class UploadDataTask(BaseTask):
         self.update_progress(100, "Done")
         elapsed = time.time() - start_time
         return TaskState.DONE, f"Processed {total_count} records from {filename} in {int(elapsed/60)}min"
+
+    def retry(self) -> Tuple[TaskState, str]:
+        fs = gridfs.GridFS(self.db)
+        file_id = self.data['file_id']
+        if isinstance(file_id, str):
+            file_id = ObjectId(file_id)
+        
+        if not fs.exists(file_id):
+            return TaskState.FAILED, "Cannot retry: source file no longer exists"
+
+        self.update_progress(0, "Identifying dates for retry...")
+        grid_out = fs.get(file_id)
+        
+        # Identify all dates in our dataset
+        stream = io.TextIOWrapper(grid_out, encoding='utf-8')
+        reader = csv.DictReader(stream)
+        dates = set()
+        for row in reader:
+            if row.get('date'):
+                dates.add(row['date'])
+        
+        # Clear data for those dates
+        allowed_range = get_allowed_days(self.db, skip_data_check=True)
+        for i, date in enumerate(dates):
+            if date not in allowed_range:
+                continue
+            self.update_progress(0, f"Clearing existing data for {date} ({i+1}/{len(dates)})...")
+            delete_date_data(self.db, date)
+            
+        # Re-run the task
+        return self.run()
 
     def _progress_callback(self, p: int, start_time: float, extra: str = "", records_per_sec: float = 0):
         info = f"{p}%"
@@ -91,6 +123,23 @@ def _validate_item(item, i: int, allowed_dates: List[str], upload_time: float):
     return item, None
 
 
+def get_allowed_days(db, skip_data_check=False):
+    """Returns a list of date strings that are allowed for upload."""
+    upload_time = datetime.now()
+    today_str = upload_time.strftime('%Y-%m-%d')
+    last_n_days = get_last_n_days()
+    target_dates = get_target_dates(last_n_days)
+    
+    allowed = [x for x in target_dates if x != today_str]
+    if skip_data_check:
+        return allowed
+
+    days_with_data = [
+        doc['date'] for doc in db['data_status'].find({'status': 'present'}, {'_id': 0, 'date': 1})
+    ]
+    return [x for x in allowed if x not in days_with_data]
+
+
 def process_upload_stream(grid_out, db, progress_callback=None):
     """
     Process an upload stream and store records in the database.
@@ -100,16 +149,7 @@ def process_upload_stream(grid_out, db, progress_callback=None):
     reader = csv.DictReader(stream)
 
     upload_time = datetime.now()
-    today_str = upload_time.strftime('%Y-%m-%d')
-    last_n_days = get_last_n_days()
-    days_with_data = [
-        doc['date'] for doc in db['data_status'].find({'status': 'present'}, {'_id': 0, 'date': 1})
-    ]
-    allowed_days = [
-        x for x in get_target_dates(last_n_days)
-        # forbid today and days for which we already have data
-        if x != today_str and x not in days_with_data
-    ]
+    allowed_days = get_allowed_days(db)
 
     total_count = 0
     date_count = defaultdict(int)
