@@ -61,27 +61,25 @@ class Worker:
         logging.info(f"Executing task {task_id} of type {task_type}")
 
         try:
-            task_obj = None
             if task_type == 'BUILD_INDEX':
                 task_obj = BuildIndexTask(self.db, task_id, data)
             elif task_type == 'DELETE_DATE':
                 task_obj = DeleteDateTask(self.db, task_id, data)
             elif task_type == 'UPLOAD_DATA':
                 task_obj = UploadDataTask(self.db, task_id, data)
-            
-            if task_obj:
-                state, info = task_obj.run()
-                self.db.tasks.update_one(
-                    {'_id': task_id},
-                    {'$set': {
-                        'state': state.value,
-                        'additional_info': info,
-                        'last_state_change': datetime.now()
-                    }}
-                )
-                logging.info(f"Task {task_id} completed successfully")
             else:
                 raise ValueError(f"Unknown task type: {task_type}")
+
+            state, info = task_obj.run()
+            self.db.tasks.update_one(
+                {'_id': task_id},
+                {'$set': {
+                    'state': state.value,
+                    'additional_info': info,
+                    'last_state_change': datetime.now()
+                }}
+            )
+            logging.info(f"Task {task_id} completed successfully")
 
         except Exception as e:
             logging.exception(f"Error executing task {task_id}")

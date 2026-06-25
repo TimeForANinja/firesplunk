@@ -12,6 +12,7 @@ services:
       - "5000:5000"
     environment:
       - APP_MONGO_URI=mongodb://mongodb:27017/
+      - APP_LAST_N_DAYS=30
       - APP_SPLUNK_SERVER_URL=https://splunk.dmz.tfan.me
       - APP_SPLUNK_QUERY_TEMPLATE=index=net-fw | stats count by src_ip dest_ip dest_port rule date
     depends_on:
@@ -30,8 +31,7 @@ services:
         - PIP_PROXY=${PIP_PROXY:-}
     environment:
       - APP_MONGO_URI=mongodb://mongodb:27017/
-      - APP_SPLUNK_SERVER_URL=https://splunk.dmz.tfan.me
-      - APP_SPLUNK_QUERY_TEMPLATE=index=net-fw | stats count by src_ip dest_ip dest_port rule date
+      - APP_LAST_N_DAYS=30
     depends_on:
       - mongodb
     deploy:
