@@ -15,6 +15,13 @@ class SummaryItemSchema(Schema):
 class UploadSchema(Schema):
     file = File(required=True, metadata={'description': 'CSV file containing activity records'})
 
+class SplunkQuerySchema(Schema):
+    query = String(required=True, metadata={'description': 'Search Processing Language query'})
+    uid = String(required=True, metadata={'description': 'UID used to store the result'})
+
+class ScheduleSplunkQuerySchema(Schema):
+    date = String(required=True, metadata={'description': 'Missing day to retrieve (YYYY-MM-DD)'})
+
 class MissingDataSchema(Schema):
     date = String(metadata={'description': 'The date being checked'})
     status = String(metadata={'description': 'Status of data: "present", "missing", or "locked"'})

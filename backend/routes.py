@@ -5,7 +5,8 @@ from urllib.parse import quote, urljoin
 from collections import defaultdict
 
 from models import (
-    MissingDataResponseSchema, UploadSchema, IPSearchResultSchema, RuleSearchResultSchema,
+    MissingDataResponseSchema, UploadSchema, SplunkQuerySchema, ScheduleSplunkQuerySchema,
+    IPSearchResultSchema, RuleSearchResultSchema,
     IndexStateSchema, TaskListSchema
 )
 from shared.env import get_last_n_days, get_splunk_server_url, get_splunk_query_template
@@ -60,10 +61,12 @@ def register_routes(app):
 
             if date_str == today_str:
                 status = 'locked'
-            elif date_str in status_results:
-                status = 'present'
             else:
-                status = 'missing'
+                status = status_entry.get(
+                    'status', 'present' if date_str in status_results else 'missing'
+                )
+                if status not in ('present', 'scheduled', 'uploading', 'failed'):
+                    status = 'missing'
 
             days_data.append({
                 'date': date_str,
@@ -95,6 +98,40 @@ def register_routes(app):
         """Manually retry a failed or stale task."""
         app.config['TASK_MANAGER'].retry_task(task_id)
         return {'message': f'Retry for task {task_id} scheduled'}
+
+    @app.post('/tasks/splunk-query')
+    @app.input(SplunkQuerySchema, location='json')
+    def run_splunk_query(json_data):
+        """Schedule a Splunk query and store its result under the supplied UID."""
+        task_id = app.config['TASK_MANAGER'].add_splunk_query_task(
+            json_data['query'], json_data['uid']
+        )
+        return {'task_id': task_id}, 202
+
+    @app.post('/summaries/date/<date>/fetch')
+    @app.input(ScheduleSplunkQuerySchema, location='json')
+    def fetch_missing_date(json_data, date):
+        """Schedule the Splunk retrieval and upload workflow for a missing day."""
+        target_dates = get_target_dates(last_n_days)
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        if date not in target_dates or date == today_str:
+            return {'message': 'Only a non-today date in the lookback range can be fetched'}, 400
+
+        existing = app.config['MONGO_DB']['data_status'].find_one({'date': date}) or {}
+        if existing.get('status') in ('present', 'scheduled', 'uploading'):
+            return {'message': f'Data for {date} is already {existing["status"]}'}, 409
+
+        target_date = datetime.strptime(date, '%Y-%m-%d')
+        earliest = target_date.strftime('%m/%d/%Y:00:00:00')
+        latest = target_date.strftime('%m/%d/%Y:23:59:59')
+        query = f'earliest="{earliest}" latest="{latest}" {splunk_query_template}'
+        task_id = app.config['TASK_MANAGER'].add_splunk_query_task(query, date, date)
+        app.config['MONGO_DB']['data_status'].update_one(
+            {'date': date},
+            {'$set': {'status': 'scheduled', 'count': 0}},
+            upsert=True,
+        )
+        return {'task_id': task_id, 'date': date}, 202
 
     @app.delete('/summaries/date/<date>')
     def clear_data(date):

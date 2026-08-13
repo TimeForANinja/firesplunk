@@ -289,7 +289,10 @@ function renderDataManagementTable() {
                             <code class="block bg-gray-100 p-2 text-xs rounded border break-all">${day.splunk_query}</code>
                         </div>
                         <div class="flex items-center space-x-4">
-                            <a href="${day.splunk_link}" target="_blank" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">Open in Splunk</a>
+                            ${day.status === 'scheduled' || day.status === 'uploading'
+                                ? '<span class="text-blue-600">Fetch scheduled</span>'
+                                : `<button onclick="scheduleSplunkQuery('${day.date}')" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">Fetch from Splunk</button>`}
+                            <a href="${day.splunk_link}" target="_blank" class="text-blue-600 hover:text-blue-900 text-sm">Open in Splunk</a>
                         </div>
                     </div>
                 </td>
@@ -309,6 +312,26 @@ function toggleRow(index) {
     const detail = document.getElementById(`detail-${index}`);
     if (detail) {
         detail.classList.toggle('hidden');
+    }
+}
+
+/** Schedules the server-side Splunk fetch and upload workflow for a day. */
+async function scheduleSplunkQuery(date) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/summaries/date/${date}/fetch`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({date})
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || 'Failed to schedule Splunk fetch');
+        }
+        await loadMissingData();
+        loadActiveTasks();
+    } catch (error) {
+        console.error('Error scheduling Splunk query:', error);
+        alert(error.message);
     }
 }
 

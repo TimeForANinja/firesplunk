@@ -40,12 +40,26 @@ class TaskManager:
         })
         return task_id
 
-    def add_upload_data_task(self, file_id: str, filename: str) -> str:
+    def add_upload_data_task(self, file_id: str, filename: str, date: str = None) -> str:
         task_id = str(uuid.uuid4())
         self.db.tasks.insert_one({
             '_id': task_id,
             'type': TaskType.UPLOAD_DATA.value,
-            'data': {'file_id': file_id, 'filename': filename},
+            'data': {'file_id': file_id, 'filename': filename, 'date': date},
+            'state': TaskState.SCHEDULED.value,
+            'progress': 0,
+            'additional_info': 'Waiting for worker...',
+            'created_at': datetime.now(),
+            'last_state_change': datetime.now()
+        })
+        return task_id
+
+    def add_splunk_query_task(self, query: str, uid: str, date: str = None) -> str:
+        task_id = str(uuid.uuid4())
+        self.db.tasks.insert_one({
+            '_id': task_id,
+            'type': TaskType.SPLUNK_QUERY.value,
+            'data': {'query': query, 'uid': uid, 'date': date},
             'state': TaskState.SCHEDULED.value,
             'progress': 0,
             'additional_info': 'Waiting for worker...',

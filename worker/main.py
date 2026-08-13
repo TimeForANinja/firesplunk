@@ -10,6 +10,7 @@ from shared.tasks import TaskState
 from tasks.build_index import BuildIndexTask
 from tasks.delete_date import DeleteDateTask
 from tasks.upload_data import UploadDataTask
+from tasks.splunk_query import SplunkQueryTask
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -97,6 +98,8 @@ class Worker:
                 task_obj = DeleteDateTask(self.db, task_id, data)
             elif task_type == 'UPLOAD_DATA':
                 task_obj = UploadDataTask(self.db, task_id, data)
+            elif task_type == 'SPLUNK_QUERY':
+                task_obj = SplunkQueryTask(self.db, task_id, data)
             else:
                 raise ValueError(f"Unknown task type: {task_type}")
 
@@ -114,6 +117,13 @@ class Worker:
                     'last_state_change': datetime.now()
                 }}
             )
+            if state == TaskState.FAILED and data.get('date'):
+                # the task impacted data for a specific date -> mark it as failed
+                self.db['data_status'].update_one(
+                    {'date': data['date']},
+                    {'$set': {'status': 'failed', 'additional_info': info}},
+                    upsert=True
+                )
             logging.info(f"Task {task_id} completed successfully")
 
         except Exception as e:
@@ -126,6 +136,14 @@ class Worker:
                     'last_state_change': datetime.now()
                 }}
             )
+            date = data.get('date')
+            if date:
+                # the task impacted data for a specific date -> mark it as failed
+                self.db['data_status'].update_one(
+                    {'date': date},
+                    {'$set': {'status': 'failed', 'additional_info': str(e)}},
+                    upsert=True
+                )
 
 if __name__ == '__main__':
     worker = Worker()
